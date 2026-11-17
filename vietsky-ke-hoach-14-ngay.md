@@ -556,11 +556,15 @@ vietsky/
 ```
 
 ### Ngày 1 – 17/11
-- Trạng thái:
-- Đã làm:
-- Khái niệm hiểu rõ:
-- Khái niệm còn mơ hồ:
+- Trạng thái: ✅ Xong Bắt buộc
+- Đã làm: setup repo + venv + `.gitignore`, push GitHub; `extract.py` (`fetch_weather`, `save_raw`) lấy 168 dòng thời tiết HCM 01–07/11 → `data/raw/weather/date=2026-11-17/hcm.json`; `plot_raw.py` vẽ nhiệt độ bằng Plotly. Đổi thành phố mẫu từ Hà Nội sang HCM.
+- Khái niệm hiểu rõ: raw layer lưu nguyên bản (lineage, reprocess); 3 chặng Extract → Landing → Visualization; partition theo ngày chạy; `params=` + `timeout`; kiểm tra 3 tầng (mạng → HTTP → nội dung).
+- Khái niệm còn mơ hồ: xử lý 429/500 (đã trả lời sai "thử lại ngay"); tham số hàm nhận giá trị lúc gọi; truy cập dict JSON lồng nhau. Câu hỏi mở: chạy nhiều lần/ngày thì partition thế nào (→ run_id, ngày 5–6, 11).
 - Lỗi gặp phải → cách khoanh vùng → cách sửa:
-- Chiến thắng hôm nay:
-- TODO cho mai:
-- Mức tự viết (không AI) hôm nay: __ / 10
+  - 400 Bad Request → 4xx = lỗi phía mình → soi URL → `start_date=2026-011-01` sai định dạng → sửa `YYYY-MM-DD`.
+  - `BASE_URL` chứa sẵn query, `hourly` là dict → in `response.url` thấy tham số trùng/sai → URL chỉ còn endpoint, `hourly` là chuỗi 4 biến.
+  - `px.line` báo thiếu thư viện → cài `pandas numpy`.
+  - Đường dẫn raw sai ngày (`date=2026-11-07`) → so với path `extract.py` in ra → dùng `RUN_DATE`.
+- Chiến thắng hôm nay: biểu đồ nhiệt độ HCM 7 ngày (`docs/screenshots/day01_temp_hcm.png`), đỉnh nóng buổi trưa → đúng múi giờ.
+- TODO cho mai: dán URL Geocoding `name=Hà Nội&country_code=VN` vào trình duyệt, xem JSON trả về những trường nào.
+- Mức tự viết (không AI) hôm nay: __ / 10 (dùng cấp 3 cho `plot_temperature`)
