@@ -568,3 +568,18 @@ vietsky/
 - Chiến thắng hôm nay: biểu đồ nhiệt độ HCM 7 ngày (`docs/screenshots/day01_temp_hcm.png`), đỉnh nóng buổi trưa → đúng múi giờ.
 - TODO cho mai: dán URL Geocoding `name=Hà Nội&country_code=VN` vào trình duyệt, xem JSON trả về những trường nào.
 - Mức tự viết (không AI) hôm nay: __ / 10 (dùng cấp 3 cho `plot_temperature`)
+
+### Ngày 2 – 18/11
+- Trạng thái: ✅ Xong Bắt buộc (chưa làm bước 4 terminal)
+- Đã làm: `geocode.py` lấy tọa độ trung tâm hành chính 34 tỉnh → `config/provinces.csv` (28 tự động, 6 sửa tay có `note`); `validate.py` kiểm tra số dòng / trùng tên / tọa độ trong khung VN, đã thử làm hỏng file 4 kiểu; `fetch_all.py` lấy thời tiết 34 tỉnh (192 dòng/tỉnh) → `data/raw/weather/date=2026-11-18/<province_code>.json`, log ra `logs/fetch_all.log`: 34 OK, 0 lỗi.
+- Khái niệm hiểu rõ: reference data sai = lỗi im lặng (nguy hiểm hơn 500); 3 chiều chất lượng: completeness, uniqueness, validity; validate trước extract sau; feature_code PPLC/PPLA/PPL.
+- Khái niệm còn mơ hồ: `try/except` trong vòng `for` (cô lập lỗi) và `sys.exit(1)` (mã thoát cho công cụ điều phối), phải nhờ giải thích; ADM1 (cả vùng) khác trường `admin1` (tên tỉnh chứa điểm).
+- Lỗi gặp phải → cách khoanh vùng → cách sửa:
+  - Geocoding trả địa điểm nước ngoài → nhìn dữ liệu trả về → tham số đúng là `countryCode`, không phải `country_code` (API lặng lẽ bỏ qua tham số sai).
+  - 17 tỉnh `not found`, vài tỉnh "tìm thấy" nhưng sai (Lào Cai, Bắc Ninh, Tây Ninh lấy TP cũ) → do tìm theo tên tỉnh → thêm cột `search_name` theo trung tâm hành chính sau sáp nhập 01/7/2025.
+  - 6 tỉnh vẫn thiếu do GeoNames hạ Yên Bái/Bắc Giang/Đồng Hới xuống `PPLA2` → sửa tay, ghi `note`.
+  - `validate.py` luôn báo đạt: `continue` sai thụt lề, kiểm tra tọa độ nằm ngoài vòng lặp, `if errors` đảo ngược → phát hiện khi cố tình đổi `lat=40`.
+  - Hai lần chạy `fetch_all.py` cùng lúc ghi đè cùng 34 file → ví dụ thật cho câu hỏi partition nhiều lần/ngày (`run_id`).
+- Chiến thắng hôm nay: 34 file JSON + log `Hoàn tất: 34 OK, 0 lỗi`.
+- TODO cho mai: tạo `docker-compose.yml` chạy `postgres:16` (mật khẩu đặt trong file biến môi trường), `docker compose up -d`, kết nối thử bằng DBeaver.
+- Mức tự viết (không AI) hôm nay: __ / 10 (AI sửa hộ một phần `geocode.py` và viết lại `fetch_all.py`)
