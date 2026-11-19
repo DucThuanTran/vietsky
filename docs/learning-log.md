@@ -107,3 +107,55 @@
 - `from extract import ...` chạy được khi chạy `python src/vietsky/x.py`; khối `__main__` không chạy khi bị import.
 - `.gitignore` thêm `logs/`, `__pycache__/`; cuối file luôn có dòng trống.
 - `config/provinces.csv` được commit (cấu hình), `data/` thì không.
+
+## Ngày 3 – 19/11 · Database và tầng Staging
+
+### 1. Staging layer và OLTP / OLAP
+- Pipeline: Extract → Raw (file JSON) → **Staging (bảng Postgres)** → Mart (ngày 8).
+- Staging = raw **đổi định dạng thành bảng**, chưa sửa nghiệp vụ. Giữ tên cột gần nguồn.
+- **OLTP**: database ứng dụng, đọc/ghi từng dòng (đặt vé). **OLAP**: phân tích, quét nhiều dòng để tổng hợp (nhiệt TB theo vùng) → việc của DE.
+- JSON API dạng **cột** (các list song song) → SQL cần dạng **dòng** (1 giờ × 1 tỉnh = 1 dòng) → `zip(..., strict=True)` (lệch độ dài thì báo lỗi, không cắt âm thầm).
+
+### 2. Thiết kế bảng
+- **DDL** (`CREATE`, `DROP`) định nghĩa cấu trúc; **DML** (`INSERT`, `SELECT`) thao tác dữ liệu.
+- `location_id` kiểu `TEXT` để giữ số 0 đầu (`"01"`).
+- Kiểu dữ liệu đúng = Postgres kiểm tra hộ: `NUMERIC(8,5)` tọa độ, `DOUBLE PRECISION` số đo, `TIMESTAMPTZ` thời gian.
+- **Primary key ghép** `(location_id, ts_utc)`: một tỉnh, một thời điểm, một dòng.
+- **Foreign key** `REFERENCES dim_location` → phải nạp bảng cha trước; `DROP` bảng con trước.
+- `CHECK`, `NOT NULL` = đưa kiểm tra validity xuống database, chặn dữ liệu sai từ cửa.
+- `loaded_at DEFAULT now()` → lưu vết lúc nạp.
+
+### 3. Idempotent load
+| Có PK | Có ON CONFLICT | Chạy lần 2 |
+|---|---|---|
+| ❌ | ❌ | Trùng gấp đôi (13 056 dòng) |
+| ✅ | ❌ | Lỗi `UniqueViolation`, rollback, pipeline đỏ |
+| ✅ | ✅ | Bỏ qua dòng trùng, vẫn 6528 → **idempotent** |
+- Idempotent = chạy lại bao nhiêu lần kết quả vẫn như chạy 1 lần → an toàn để retry.
+- `with psycopg.connect() as conn`: xong thì commit, lỗi thì **rollback cả transaction**.
+- Bảng chiều nên **upsert** (`DO UPDATE SET ... = EXCLUDED....`) để cập nhật khi CSV đổi (ngày 8).
+
+### 4. Múi giờ: lỗi im lặng
+- API trả giờ địa phương **không kèm offset** (`2026-11-11T00:00`). Nạp thẳng → Postgres hiểu là UTC → lệch 7 tiếng, không báo lỗi.
+- Sửa: gắn offset từ `utc_offset_seconds` (không cài cứng), lưu `TIMESTAMPTZ` (UTC).
+- Kiểm tra: 00:00 VN phải thành `17:00+00` hôm trước.
+- Truy vấn theo ngày VN: `(ts_utc AT TIME ZONE 'Asia/Ho_Chi_Minh')::date`.
+
+### 5. Docker
+- Container dùng xong bỏ (stateless); dữ liệu sống trong **named volume** (stateful). `down` giữ volume, `down -v` xóa volume.
+- Tên volume ở service phải khớp khai báo `volumes:` cuối file.
+- `ports: "5433:5432"` = cổng máy : cổng container. Cổng 5432 trên máy đã bị Postgres Homebrew chiếm.
+- Mật khẩu trong file biến môi trường (bị ignore), không ghi vào compose (bị commit, nằm mãi trong lịch sử git).
+
+### 6. Python + Postgres
+- `psycopg`: `cur.execute(sql, params)` với `%s`, **không** f-string → chống SQL injection.
+- `executemany` nạp cả list tuple một lần.
+- `os.environ["X"]` (fail fast, đã sửa trong `load.py`) tốt hơn `.get("X")` (trả `None` im lặng).
+- `load_dotenv()` nạp file biến môi trường vào `os.environ`.
+
+### 7. SQL
+- `ORDER BY ... NULLS LAST`; subquery trong `WHERE` (`= (SELECT MIN(...))`).
+- `GROUP BY` lọc trước bằng `WHERE`, lọc sau gộp bằng `HAVING`.
+- `LEFT JOIN` từ bảng chiều để bắt cả tỉnh có **0 dòng** (`JOIN` thường bỏ sót).
+- `COUNT(*) FILTER (WHERE ...)` đếm nhiều điều kiện trong 1 lần quét.
+- `ROUND(x::numeric, 1)`: `ROUND` 2 tham số cần kiểu `numeric`.

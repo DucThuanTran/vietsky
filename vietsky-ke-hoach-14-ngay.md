@@ -583,3 +583,16 @@ vietsky/
 - Chiến thắng hôm nay: 34 file JSON + log `Hoàn tất: 34 OK, 0 lỗi`.
 - TODO cho mai: tạo `docker-compose.yml` chạy `postgres:16` (mật khẩu đặt trong file biến môi trường), `docker compose up -d`, kết nối thử bằng DBeaver.
 - Mức tự viết (không AI) hôm nay: __ / 10 (AI sửa hộ một phần `geocode.py` và viết lại `fetch_all.py`)
+
+### Ngày 3 – 19/11
+- Trạng thái: ✅ Xong Bắt buộc
+- Đã làm: `docker-compose.yml` chạy `postgres:16` (cổng 5433, named volume `pgdata`, cấu hình trong file biến môi trường); `sql/01_staging.sql` tạo `dim_location` + `stg_weather_hourly` (PK `(location_id, ts_utc)`, FK, `CHECK`); `load.py` chuyển JSON cột → dòng, nạp 34 tỉnh + 6528 dòng, chạy lại 2 lần vẫn 6528 (idempotent); `sql/explore.sql` 15 truy vấn chạy được cả 15.
+- Khái niệm hiểu rõ: staging layer; PK ghép ngăn trùng + `ON CONFLICT` giúp chạy lại = idempotent; transaction rollback cả khối; volume giữ dữ liệu ngoài container; bí mật tách khỏi code; tham số `%s` chống SQL injection.
+- Khái niệm còn mơ hồ: lúc đầu chưa rõ vai trò volume và lý do tách bí mật; upsert (`DO UPDATE`) cho bảng chiều (ngày 8).
+- Lỗi gặp phải → cách khoanh vùng → cách sửa:
+  - Cổng 5432 đã bị Postgres Homebrew chiếm → đổi sang `5433:5432` (tránh kết nối nhầm database).
+  - Giờ API là giờ địa phương không kèm múi giờ → gắn offset từ `utc_offset_seconds` → kiểm tra dòng đầu `2026-11-10 17:00+00` = 00:00 VN.
+  - Khai báo volume cuối file đổi tên (`vietsky:`) không khớp `pgdata` → compose báo `undefined volume` → trả lại `pgdata:`.
+- Chiến thắng hôm nay: Top 5 tỉnh nóng nhất 18/11 từ database của mình: Hồ Chí Minh 33.9°C, An Giang 33.7, Đồng Nai 32.9, Vĩnh Long 32.4, Tây Ninh 32.0.
+- TODO cho mai: mở tài liệu Open-Meteo Air Quality API, gọi thử 1 URL cho HCM với `pm2_5,pm10`, xem JSON có giống dạng thời tiết không.
+- Mức tự viết (không AI) hôm nay: __ / 10 (tự viết SQL DDL, `load.py`, 15 truy vấn; AI chỉ sửa nhỏ)
