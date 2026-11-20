@@ -159,3 +159,49 @@
 - `LEFT JOIN` từ bảng chiều để bắt cả tỉnh có **0 dòng** (`JOIN` thường bỏ sót).
 - `COUNT(*) FILTER (WHERE ...)` đếm nhiều điều kiện trong 1 lần quét.
 - `ROUND(x::numeric, 1)`: `ROUND` 2 tham số cần kiểu `numeric`.
+
+## Ngày 4 – 20/11 · Nguồn bụi mịn + SQL kiểm tra chất lượng
+
+### 1. Profiling: biết nguồn trước khi tin nó
+- **Profiling** = khám phá nguồn mới **1 lần** (lùi được bao xa, min/max, null ra sao). **Quality check** = luật cố định chạy **mỗi lần** pipeline chạy.
+- 2 giới hạn khác nhau: API **cho hỏi** (Air Quality nhận từ 2013, trả 200) vs API **có số thật** (PM2.5 từ 2022-08-04, trước đó toàn `null`).
+- `/forecast` chỉ nhận ~3 tháng trước → ~2 tuần tới, **cửa sổ trượt theo ngày** → dữ liệu cũ mất khỏi API → **raw là nguồn lịch sử duy nhất**, chạy hằng ngày, không xóa raw.
+- 400 trả JSON `{"reason": ..., "error": true}` → đọc `reason` là biết giới hạn.
+- 200 + đủ dòng vẫn có thể toàn `null` → cần check NULL, không chỉ check số dòng.
+
+### 2. Thiết kế mở rộng nguồn
+- **DRY**: `fetch_hourly` chung, mỗi nguồn 1 dòng → thêm nguồn = ~3 dòng.
+- **Config-driven**: dict `SOURCES` (bảng, ánh xạ tên JSON → tên cột) → thêm nguồn = thêm cấu hình, không sửa logic.
+- Lỗi 1 nguồn: **all-or-nothing** theo tỉnh (đồng bộ, mất phần tốt) vs **cô lập theo nguồn** (giữ phần tốt, `failed` theo cặp tỉnh-nguồn). Chọn có chủ đích.
+- Tên bảng/cột không truyền bằng `%s` → `psycopg.sql.Identifier`.
+- Chạy thử đừng ghi chung thư mục với pipeline thật (file `hcm.json` lạc → vỡ khóa ngoại).
+- `DROP` + load chỉ partition mới nhất → mất lịch sử trong DB; raw còn → **backfill** (ngày 5–6).
+
+### 3. Bộ check chất lượng (quy ước: 0 dòng = đạt)
+| Check | Chiều | Mẫu SQL |
+|---|---|---|
+| DQ1 trùng | Uniqueness | `ROW_NUMBER() OVER (PARTITION BY khóa ORDER BY loaded_at DESC)` → `rn > 1` |
+| DQ2 NULL | Completeness (cột) | `COUNT(*) FILTER (WHERE c IS NULL)` + `HAVING ... OR ...` |
+| DQ3 vô lý | Validity | `x < min OR x > max` (= `NOT BETWEEN`) |
+| DQ4 giờ đứt | Completeness (thời gian) | `LAG(ts) OVER (PARTITION BY thực_thể ORDER BY ts)` → `> INTERVAL '1 hour'` |
+| DQ5 thiếu tỉnh | Completeness (thực thể) | `LEFT JOIN` từ bảng chuẩn, `COUNT(cột_bên_phải) <> 192` |
+- Ngưỡng (0–1000, 5% NULL…) là **business rule**, hỏi nghiệp vụ, không tự đoán.
+
+### 4. Lỗi tư duy hay gặp khi viết check
+- **Viết ngược điều kiện**: lấy dòng tốt thay vì dòng lỗi (`rn = 1`, `> 0 AND < 10`, `= 1 hour`). Trước khi viết hỏi: *"dòng mình muốn thấy là dòng lỗi"*. Cách an toàn: viết điều kiện hợp lệ rồi `NOT (...)`.
+- Check không bao giờ báo lỗi = cảm giác an toàn giả → **giả lập lỗi** để thử (xóa Lai Châu trong `BEGIN ... ROLLBACK`).
+- `rn > 1` để **tìm** trùng; `rn = 1` để **khử** trùng (ngày 8).
+
+### 5. Hàm cửa sổ: 2 câu hỏi
+- `PARTITION BY`: mỗi nhóm độc lập là **cái gì**? (thường là thực thể: tỉnh).
+- `ORDER BY`: thứ tự theo **cái gì**? (thường là thời gian sự kiện `ts_utc`, hiếm khi `loaded_at`).
+- DQ1 tìm bản sao của *một dòng* → partition theo **mọi cột khóa**; DQ4 xét chuỗi của *một thực thể* → partition chỉ theo **thực thể**.
+- Hàm cửa sổ tính **sau** `WHERE` → muốn lọc phải bọc CTE.
+- `LAG` = dòng trước, `LEAD` = dòng sau. Dòng đầu nhóm có `LAG` = NULL → tự loại khỏi điều kiện so sánh.
+
+### 6. SQL nền tảng
+- Thứ tự xử lý: `FROM` → `WHERE` → `GROUP BY` → `HAVING` → hàm cửa sổ → `SELECT` → `ORDER BY`.
+- `= NULL` luôn rỗng → dùng `IS NULL`.
+- `COUNT(*)` đếm mọi dòng; `COUNT(cột)` bỏ qua NULL → dùng `COUNT(cột_bên_phải)` sau `LEFT JOIN`.
+- `INNER JOIN` loại thực thể không khớp → bỏ sót tỉnh vắng mặt; đối soát luôn **`LEFT JOIN` từ bảng chuẩn**.
+- `ts - ts` ra `INTERVAL`; viết `INTERVAL '1 hour'`.

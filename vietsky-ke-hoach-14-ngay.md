@@ -12,17 +12,20 @@
 - Python: viết được mức cơ bản, quen dùng nhưng phụ thuộc AI khi viết chương trình lớn. SQL: mới học (JOIN, GROUP BY, CTE, window function) nhưng chưa vững. Linux, Docker, Git: cơ bản.
 - Máy: MacBook M2 Pro, 16GB RAM. Học buổi sáng, 4 tiếng/ngày.
 
-**Luật bắt buộc**
-1. **KHÔNG viết hộ cả file hoặc cả hàm hoàn chỉnh**, trừ khi tôi ghi rõ "cấp 3". Mục tiêu của tôi là tự viết được khi không có AI.
-2. Khi tôi hỏi, giúp theo **thang gợi ý**:
-   - **Cấp 1:** đặt câu hỏi gợi mở, chỉ ra tôi nên tra tài liệu nào.
-   - **Cấp 2:** giải thích hướng làm hoặc viết pseudocode.
-   - **Cấp 3:** (chỉ khi tôi yêu cầu) một đoạn code ngắn ≤ 15 dòng. Sau đó yêu cầu tôi tự gõ lại và giải thích từng dòng.
-3. Khi giải thích khái niệm: **định nghĩa ngắn → vai trò → thuộc giai đoạn nào của pipeline → 1 ví dụ trong dự án VietSky → 1 câu hỏi kiểm tra lại tôi.**
-4. Khi tôi báo lỗi: hướng dẫn tôi **tự khoanh vùng** (lỗi ở chặng nào, log nói gì, kiểm tra bằng lệnh hay truy vấn nào) trước khi nói nguyên nhân.
-5. Cuối mỗi buổi, nếu tôi gõ "tổng kết": ra **3 câu hỏi ôn tập** và nhắc tôi cập nhật nhật ký.
-6. Nếu tôi lan man sang thứ ngoài kế hoạch, nhắc tôi quay lại mục "Bắt buộc" của ngày.
-7. Trả lời bằng tiếng Việt, giữ thuật ngữ tiếng Anh gốc trong ngoặc.
+**Luật bắt buộc** (cập nhật 20/11/2026)
+1. **Học Data Engineering, không phải học code.** Không dùng thang gợi ý cấp 1/2/3, không viết thẳng cả file. Với **Python**: đưa **pseudocode chi tiết** (từng bước rõ ràng, nêu tên hàm/thư viện cần dùng, dữ liệu vào/ra mỗi bước), mỗi bước kèm 1 dòng **ý nghĩa DE** (bước này phục vụ chặng nào, chống lỗi gì). Tôi tự chuyển thành code; AI kiểm tra, chạy và sửa lỗi cú pháp lặt vặt.
+2. **Khi tôi nói "sửa", "làm luôn", "cung cấp toàn bộ" thì làm đúng như vậy**, không hỏi lại, không bắt tôi tự gõ. Nếu có điều quan trọng cần biết, nói ngắn sau khi làm xong.
+3. **Câu hỏi kiểm tra tập trung vào giải quyết bài toán**, không hỏi kiểu đánh đố "vì sao dùng A thay vì B" hay chi tiết kỹ thuật thuần. Hỏi theo tình huống thật:
+   - Pipeline gặp tình huống X → chuyện gì xảy ra, phát hiện bằng cách nào, xử lý ra sao?
+   - Cần đạt mục tiêu Y → chia thành những bước nào, kiểm tra kết quả thế nào?
+   - Nhìn số liệu/log này → có gì bất thường, lỗi nằm ở chặng nào?
+   Mục tiêu: hình thành **khung tư duy có hệ thống**, nhìn ra vấn đề, biết xây dựng lời giải.
+4. Khi giải thích khái niệm: **định nghĩa ngắn → vai trò → thuộc chặng nào của pipeline → ví dụ trong VietSky**. Mỗi khái niệm gắn vào một tình huống thực tế người DE gặp.
+5. Khi có lỗi: chỉ ra **lỗi ở chặng nào, dấu hiệu nhận biết, cách khoanh vùng**, rồi sửa luôn. Bài học nằm ở cách truy lỗi, không ở việc tôi tự gõ lại.
+6. **SQL** là kỹ năng cốt lõi của DE: đưa **pseudocode SQL rõ ràng** hoặc **khung truy vấn sẵn, để trống chỗ `___`** cho tôi điền từ khóa/biểu thức, kèm câu hỏi nghiệp vụ mà truy vấn trả lời. AI kiểm tra và chạy thử.
+7. Cuối mỗi buổi, khi tôi gõ "tổng kết": ra **3 câu hỏi tình huống** (theo luật 3), AI tự ghi nhật ký (mục 7) và sổ tay `docs/learning-log.md`.
+8. Nếu tôi lan man ngoài kế hoạch, nhắc quay lại mục "Bắt buộc" của ngày.
+9. Trả lời bằng tiếng Việt, ngắn gọn, giữ thuật ngữ tiếng Anh gốc trong ngoặc. Hỏi trước khi commit.
 
 ---
 
@@ -596,3 +599,18 @@ vietsky/
 - Chiến thắng hôm nay: Top 5 tỉnh nóng nhất 18/11 từ database của mình: Hồ Chí Minh 33.9°C, An Giang 33.7, Đồng Nai 32.9, Vĩnh Long 32.4, Tây Ninh 32.0.
 - TODO cho mai: mở tài liệu Open-Meteo Air Quality API, gọi thử 1 URL cho HCM với `pm2_5,pm10`, xem JSON có giống dạng thời tiết không.
 - Mức tự viết (không AI) hôm nay: __ / 10 (tự viết SQL DDL, `load.py`, 15 truy vấn; AI chỉ sửa nhỏ)
+
+### Ngày 4 – 20/11
+- Trạng thái: ✅ Xong Bắt buộc (chưa làm Mở rộng: rolling 24h + biểu đồ)
+- Đã làm: tổng quát hóa `extract.py` (`fetch_hourly` + 2 hàm 1 dòng, `save_raw` theo `source`); `fetch_all.py` lấy cả thời tiết + bụi mịn 34 tỉnh (34 OK); profiling 2 API ghi vào `README.md`; bảng `stg_air_quality_hourly`; `load.py` config-driven (`SOURCES`, `sql.Identifier`) nạp 6528 + 6528 dòng, idempotent; `sql/dq_checks.sql` 5 check, cả 5 đạt (0 dòng).
+- Khái niệm hiểu rõ: profiling ≠ quality check; API "cho hỏi" ≠ API "có dữ liệu" (PM2.5 thật từ 2022-08-04, `/forecast` chỉ ~3 tháng, cửa sổ trượt) → raw là nguồn lịch sử duy nhất; config-driven; NULL không so sánh bằng `=`; `WHERE` trước gộp, `HAVING` sau gộp.
+- Khái niệm còn mơ hồ: viết điều kiện check bị **ngược** (lấy dòng tốt thay vì dòng lỗi) ở DQ1, DQ3, DQ4; chọn `PARTITION BY` / `ORDER BY` cho hàm cửa sổ; `INNER` vs `LEFT JOIN` khi đối soát.
+- Lỗi gặp phải → cách khoanh vùng → cách sửa:
+  - `fetch_all.py` chỉ gắn `source="weather"`, chưa gọi API bụi mịn → đếm file `air_quality/` chỉ có 1 → thêm gọi 2 nguồn, all-or-nothing theo tỉnh.
+  - File `hcm.json` từ lần chạy thử lẫn vào partition thật → sẽ vỡ khóa ngoại khi load → xóa; chạy thử không ghi chung thư mục pipeline.
+  - `docker-compose.yml` đổi khai báo volume không khớp → `undefined volume` (sửa ở Ngày 3).
+  - Chạy lại DDL `DROP` mất dữ liệu 18/11 trong DB → raw còn → cần backfill (ngày 5–6).
+  - DQ5 dùng `INNER JOIN` → giả lập xóa Lai Châu trong transaction rồi rollback: `INNER` trả 0 dòng (bỏ sót), `LEFT` bắt được → đổi sang `LEFT JOIN`.
+- Chiến thắng hôm nay: 2 nguồn dữ liệu trong DB + bộ 5 check chất lượng phủ uniqueness / completeness / validity.
+- TODO cho mai: liệt kê các bước đang chạy tay (fetch_all → DDL → load → dq_checks) và ghi ra giấy thứ tự + điều kiện dừng giữa các bước, làm đầu vào cho pipeline v1.
+- Mức tự viết (không AI) hôm nay: __ / 10 (tự viết `load.py` config-driven, DDL, 5 check theo khung; AI sửa `fetch_all.py` và điều kiện check)
