@@ -205,3 +205,69 @@
 - `COUNT(*)` đếm mọi dòng; `COUNT(cột)` bỏ qua NULL → dùng `COUNT(cột_bên_phải)` sau `LEFT JOIN`.
 - `INNER JOIN` loại thực thể không khớp → bỏ sót tỉnh vắng mặt; đối soát luôn **`LEFT JOIN` từ bảng chuẩn**.
 - `ts - ts` ra `INTERVAL`; viết `INTERVAL '1 hour'`.
+
+## Ngày 5 – 21/11 · Pipeline v1: một lệnh chạy tất cả
+
+### 1. ETL vs ELT
+- **ETL**: biến đổi trước khi nạp. **ELT**: nạp gần nguyên bản, biến đổi bằng SQL trong kho.
+- VietSky theo **ELT**: Python chỉ **đổi hình dạng** (cột → dòng, gắn múi giờ), không sửa giá trị; nghiệp vụ (trung bình 24h, AQI ngày) làm bằng SQL ở mart (ngày 8).
+- Lợi ích: đổi logic → chạy lại SQL trên dữ liệu đã có, không gọi lại API.
+
+### 2. Modularity + orchestrator
+| Module | Chặng | Vào → Ra |
+|---|---|---|
+| `config.py` | Cấu hình | — → `SOURCES`, đường dẫn, `db_conninfo()` |
+| `extract.py` | Extract + Landing | tọa độ → file raw JSON |
+| `transform.py` | Transform | JSON cột → list tuple dòng |
+| `load.py` | Load | list dòng → bảng staging, trả số dòng thực ghi |
+| `run_log.py` | Observability | trạng thái chặng → `ops.pipeline_runs` |
+| `pipelines/run_pipeline.py` | **Orchestrator** | `--date` → gọi lần lượt các chặng |
+- Chỉ orchestrator biết thứ tự; module không gọi lẫn nhau → lỗi ở đâu biết ngay file nào. Ngày 11 Airflow thay vai orchestrator.
+- Chia theo **nguồn**: nguồn này hỏng không chặn nguồn kia; cuối cùng `sys.exit(1)` nếu có chặng FAILED.
+
+### 3. Configuration vs secrets
+| Loại | Ví dụ | Để ở đâu |
+|---|---|---|
+| Secret / khác nhau giữa máy | mật khẩu, user, tên DB | file biến môi trường (không commit) |
+| Công khai, giống mọi nơi | URL API, biến, tên bảng | `config.py` (commit) |
+- **Single source of truth**: chuỗi biến gửi API (`api_variables`) sinh từ ánh xạ cột → extract và load không lệch nhau.
+- `--date` (argparse, `type=date.fromisoformat`) thay `date.today()` cài cứng → chạy lại ngày bất kỳ → nền móng backfill.
+- Đưa cấu hình công khai vào file biến môi trường → người khác quên thêm → `None` im lặng.
+
+### 4. Pipeline metadata + đối soát
+- Bảng `ops.pipeline_runs`: mỗi dòng = một **chặng** của một **nguồn** trong một **lần chạy** → PK `(run_id, stage, source)`.
+- Quy tắc chọn khóa: "mỗi dòng là một ___ của một ___ trong một ___" → mỗi chỗ trống là một cột khóa.
+- `run_date` (chạy cho ngày nào) ≠ `started_at` (bấm chạy lúc nào).
+- Schema `ops` riêng, file DDL riêng **không `DROP`** → reset staging không mất lịch sử chạy.
+- Đọc cặp số chặng load:
+
+| rows_in | rows_out | Ý nghĩa |
+|---|---|---|
+| 6528 | 6528 | Dữ liệu mới |
+| 6528 | 0 | Chạy lại, đã có hết → idempotent |
+| 6528 | 192 | Bù được 1 tỉnh thiếu trước đó |
+| 6528 | 6400 (lần đầu) | Rớt dòng → điều tra |
+
+- `rows_out` = `cur.rowcount` (thực ghi), không phải `len(rows)` (gửi đi).
+
+### 5. Observability
+- 3 tầng: **logs** (chuyện gì xảy ra) · **metadata** (bao lâu, bao nhiêu dòng, đạt/rớt) · **data quality** (dữ liệu đúng không).
+- Vòng đời chặng: INSERT `RUNNING` (commit ngay) → UPDATE `SUCCESS`/`FAILED`. Dòng **kẹt `RUNNING`** = process chết giữa chừng.
+- **Dữ liệu có thể rollback, dấu vết vận hành thì không**: log commit riêng trước khi chạy chặng.
+- "Thứ Bảy có chạy không?" → 1 câu SQL, ai có quyền DB cũng tự trả lời, không phụ thuộc máy/người.
+- Log là **dòng trong bảng DB** (lưu vĩnh viễn), không phải `print` (mất khi đóng terminal).
+- Log lộ ra 2 lần chạy song song (run_id xen kẽ) → cần khóa chặn chạy trùng.
+
+### 6. Sự cố hôm nay: DB mất trắng
+- Volume bị tạo lại → mất `dim_location` + staging. Raw còn nguyên → chạy pipeline 1 lệnh là dựng lại.
+- Chứng minh thiết kế ngày 1: **raw là nguồn sự thật, DB có thể dựng lại bất cứ lúc nào**.
+- `docker compose down -v` xóa volume → cẩn thận.
+
+### 7. Python
+- Import theo **package**: `from vietsky.config import ...`, chạy bằng `PYTHONPATH=src`. PyCharm: Mark `src` as Sources Root.
+- Type hint trả về là **kiểu**: `-> tuple[int, int]`, không phải tên biến.
+- `conn.execute(sql, (giá_trị, ...))`: tuple lấp vào các `%s` theo đúng thứ tự; hàm định nghĩa cách dùng tham số, nơi gọi cung cấp giá trị.
+- `@dataclass(frozen=True)` + `@property` cho cấu hình.
+- `date - timedelta(days=n)`, không trừ thẳng số nguyên.
+- Giá trị chữ trong SQL phải có nháy đơn (`'weather'`), không có nháy = tên cột.
+- `DO NOTHING` giữ số cũ → bản dự báo mới không được cập nhật (lỗi im lặng tiềm ẩn) → upsert ở ngày 6.

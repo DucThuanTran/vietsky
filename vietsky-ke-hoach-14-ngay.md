@@ -614,3 +614,19 @@ vietsky/
 - Chiến thắng hôm nay: 2 nguồn dữ liệu trong DB + bộ 5 check chất lượng phủ uniqueness / completeness / validity.
 - TODO cho mai: liệt kê các bước đang chạy tay (fetch_all → DDL → load → dq_checks) và ghi ra giấy thứ tự + điều kiện dừng giữa các bước, làm đầu vào cho pipeline v1.
 - Mức tự viết (không AI) hôm nay: __ / 10 (tự viết `load.py` config-driven, DDL, 5 check theo khung; AI sửa `fetch_all.py` và điều kiện check)
+
+### Ngày 5 – 21/11
+- Trạng thái: ✅ Xong Bắt buộc (chưa làm Mở rộng: thử chủ động nhánh FAILED)
+- Đã làm: `sql/00_ops.sql` (schema `ops`, bảng `pipeline_runs`, không `DROP`, idempotent); tách module `config.py` (dataclass `Source`, `api_variables` sinh từ ánh xạ cột) · `transform.py` · `load.py` (trả `rowcount`) · `run_log.py` (`start_stage`/`finish_stage`); `pipelines/run_pipeline.py --date` chạy extract → load cho 2 nguồn, mỗi chặng 1 dòng log. Chạy lần 1: 4 chặng SUCCESS, 6528 + 6528 dòng; chạy lại: load `rows_out = 0` (idempotent đo được).
+- Khái niệm hiểu rõ: ETL vs ELT (Python chỉ đổi hình dạng, nghiệp vụ để SQL); modularity + orchestrator; config công khai (`config.py`) vs secrets (file biến môi trường); run ID; vòng đời RUNNING → SUCCESS/FAILED; `rows_in` vs `rows_out` để đối soát; log commit riêng, không bị rollback cùng dữ liệu.
+- Khái niệm còn mơ hồ: import theo package (`from vietsky.x`, `PYTHONPATH=src`); type hint trả về (`-> tuple[int, int]` là kiểu, không phải tên biến); truyền tuple giá trị cho `%s`; log nằm trong bảng DB chứ không phải `print`.
+- Lỗi gặp phải → cách khoanh vùng → cách sửa:
+  - Bảng staging biến mất (`relation does not exist`) → `\dt` chỉ còn `ops.pipeline_runs`, volume tạo lại lúc 11:47 (nghi `down -v`) → chạy lại `01_staging.sql`, pipeline dựng lại DB từ API/raw.
+  - `config.py`: URL lấy từ biến môi trường không tồn tại → `None` im lặng; key `localhost` thay vì `host`; thiếu `api_variables` → sửa.
+  - `ModuleNotFoundError: config` → import theo package `vietsky.config`.
+  - `run_log.py` không truyền tuple giá trị cho `%s`, thiếu `run_date`/`status`, sai tên hàm → sửa, thử 1 run giả.
+  - `run_pipeline.py`: `date - int`, `"SUCESS"` (bị `CHECK` chặn), truyền object `Source` vào SQL, `sys.exit` thụt lề trong vòng `for` (nguồn 2 không chạy) → sửa.
+  - Bảng log lộ ra 2 lần chạy song song (run_id xen kẽ) → cần chặn chạy trùng (lock / `max_active_runs`, ngày 11).
+- Chiến thắng hôm nay: `SELECT * FROM ops.pipeline_runs` thấy đủ 4 chặng/lần chạy, extract chiếm ~99% thời gian, lần chạy lại load 6528 → 0.
+- TODO cho mai: đổi `load_rows` sang `ON CONFLICT ... DO UPDATE` (upsert) để bản dự báo mới ghi đè bản cũ, chạy lại 2 lần và so `pipeline_runs`.
+- Mức tự viết (không AI) hôm nay: __ / 10 (tự viết theo pseudocode cả 5 file; AI sửa lỗi import, tham số SQL, thụt lề)
