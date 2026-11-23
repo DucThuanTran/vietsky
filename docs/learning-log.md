@@ -308,3 +308,27 @@
 - `chunks, cur = [], start` (tên bên trái, giá trị bên phải). `chunks = [], cur = start` là gán chuỗi + unpack → lỗi.
 - Chạy script từ terminal: `PYTHONPATH=src .venv/bin/python pipelines/x.py`.
 - Hàm dùng chung cho nhiều script (`run_stage`) đặt trong package, không đặt trong script.
+
+## Ngày 7 – 23/11 · Mốc 1: củng cố
+
+### 1. Unit test cho data pipeline
+- Lỗi transform là lỗi **im lặng**: pipeline SUCCESS nhưng dữ liệu sai. Test bắt nó trước khi vào DB.
+- Hàm thuần (pure function: `to_rows`, `check_coordinates`, `split_by_year`) dễ test nhất: không API, không DB, cùng vào → cùng ra.
+- Mỗi test: Arrange (dữ liệu nhỏ tự gõ) → Act (gọi hàm) → Assert (so với giá trị tự tính trước). Fixture = dữ liệu mẫu dùng chung.
+- Regression: xoá `.replace(tzinfo=tz)` → test đổi UTC đỏ ngay. Chạy: `.venv/bin/python -m pytest`.
+
+### 2. Vai trò từng thành phần (dễ nói lệch khi phỏng vấn)
+| Thành phần | Làm gì | Không làm gì |
+|---|---|---|
+| Raw JSON | Nguồn sự thật, dựng lại DB | Không bị sửa |
+| Transform | JSON → dòng, gắn múi giờ → UTC, đổi tên cột | Không đổi sang CSV |
+| Schema (kiểu cột, CHECK, NOT NULL, PK) | Chặn dữ liệu sai **định dạng** từ cửa | — |
+| DQ checks | Dò dữ liệu sai **nội dung**: trùng, thiếu, vô lý, hở giờ, thiếu tỉnh | Không kiểm định dạng |
+| Upsert + khoá chính | **Bảo vệ**: chạy lại không trùng, cập nhật số bị sửa | — |
+| `ops.pipeline_runs` | **Quan sát**: chạy chưa, bao lâu, bao nhiêu dòng, hỏng ở chặng nào | Không đảm bảo chạy lại an toàn |
+
+### 3. Kể dự án trong 15 giây
+> Lấy dữ liệu theo giờ từ API, cất raw nguyên vẹn, biến đổi rồi upsert vào staging nên chạy lại không trùng. DQ checks bắt dữ liệu sai nghĩa, còn bảng log cho biết chạy ra sao và hỏng ở đâu.
+
+### 4. README tối thiểu
+- Mục tiêu · sơ đồ kiến trúc (Mermaid, GitHub tự vẽ) · luồng dữ liệu · cách chạy từng bước · cảnh báo lệnh nguy hiểm (`01_staging.sql` xoá bảng staging).
