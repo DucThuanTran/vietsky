@@ -283,6 +283,13 @@ vietsky/
 🏆 **Chiến thắng:** biểu đồ PM2.5 theo tháng trong 3 năm. Bạn sẽ thấy **mùa ô nhiễm** của Hà Nội hiện ra.
 ❓ **Tự kiểm tra:** (1) Giải thích idempotency bằng ví dụ trong dự án. (2) Vì sao retry cần backoff thay vì gọi lại ngay? (3) Backfill khác incremental load thế nào?
 
+**🌙 Bản nhẹ (áp dụng 23/11, cơ thể lệch giờ):** giữ nguyên 3 đầu ra bắt buộc, giảm thao tác. Khoảng 1h30 làm thật, 3 khối, mỗi khối 25–30 phút, nghỉ 5 phút giữa các khối.
+- **Khối 1 · Upsert:** chỉ điền 5 chỗ trống trong khung SQL. AI chuyển thành code động trong `load_rows` và chạy chứng minh.
+- **Khối 2 · Retry:** tự viết vòng lặp retry rút gọn (~12 dòng). AI test bằng URL lỗi.
+- **Khối 3 · Backfill:** chỉ tự viết `split_by_year` (khái niệm chunking). AI làm phần còn lại: profiling độ trễ archive, config, `backfill.py`, chạy nền, README, biểu đồ PM2.5.
+- **Bỏ hôm nay:** watermark, bảng thuật ngữ dài, ALTER CHECK.
+- **Điểm dừng an toàn:** xong Khối 1 + 2 là đạt ngày. Khối 3 có thể dời sang Ngày 7 (ngày nhẹ, dùng để bù trễ).
+
 ---
 
 ### Ngày 7 · Thứ Hai 23/11 · ✅ MỐC 1: củng cố (ngày nhẹ)
@@ -630,3 +637,17 @@ vietsky/
 - Chiến thắng hôm nay: `SELECT * FROM ops.pipeline_runs` thấy đủ 4 chặng/lần chạy, extract chiếm ~99% thời gian, lần chạy lại load 6528 → 0.
 - TODO cho mai: đổi `load_rows` sang `ON CONFLICT ... DO UPDATE` (upsert) để bản dự báo mới ghi đè bản cũ, chạy lại 2 lần và so `pipeline_runs`.
 - Mức tự viết (không AI) hôm nay: __ / 10 (tự viết theo pseudocode cả 5 file; AI sửa lỗi import, tham số SQL, thụt lề)
+
+### Ngày 6 – 23/11 (bản nhẹ, cơ thể lệch giờ)
+- Trạng thái: ✅ Xong Bắt buộc theo bản nhẹ (chưa làm Mở rộng: watermark / incremental)
+- Đã làm: `load_rows` đổi sang upsert (`DO UPDATE SET ... = EXCLUDED.*, loaded_at = now()`), chạy lại ngày 21/11 → `COUNT(*)` giữ 6528/6528; `fetch_hourly` có retry 4 lần, backoff 2/4/8s, chỉ thử lại 429/5xx + lỗi mạng (test 4 kịch bản đạt); `config.py` thêm `history_url`/`history_start`; `run_stage` chuyển sang `run_log.py`; `pipelines/backfill.py` (chia đoạn theo năm, commit sau mỗi tỉnh-năm). Backfill 04/08/2022 → 23/11/2026: 1.283.568 dòng mỗi nguồn, 397s + 475s, 0 retry, 0 khe hở giờ.
+- Khái niệm hiểu rõ: idempotency đo bằng `COUNT(*)` (không còn bằng `rows_out` khi dùng upsert); lỗi tạm thời (thử lại) vs lỗi do mình (ném ngay); chunking + checkpoint giúp chạy lại an toàn; kẹp ngày bắt đầu theo giới hạn nguồn (`max(start, history_start)`).
+- Khái niệm còn mơ hồ: `raise` trong `try` làm thoát hàm → code phía sau unreachable (retry thành gọi 1 lần); gán 2 biến trên 1 dòng (`chunks, cur = [], start`); `PYTHONPATH=src` khi chạy script từ terminal.
+- Lỗi gặp phải → cách khoanh vùng → cách sửa:
+  - Retry: PyCharm báo bước 4–5 unreachable → mọi nhánh trong `try/except` đều `raise`/`return` → đổi thành `error = ...`, chỉ `raise` khi hết lượt.
+  - `split_by_year`: `chunks = [], cur = start` bị hiểu là gán chuỗi + unpack `date` → `chunks, cur = [], start`.
+  - `No module named vietsky` → chạy từ terminal thiếu `PYTHONPATH=src`.
+  - 238 `pm2_5` NULL = 7 giờ đầu 04/08/2022 × 34 tỉnh: giới hạn nguồn, không phải lỗi pipeline.
+- Chiến thắng hôm nay: 2,57 triệu dòng lịch sử trong 14,5 phút; PM2.5 Hà Nội theo tháng có đỉnh 71,4 (01/2025), các đỉnh rơi vào tháng 12 → 4. Điểm lạ: mùa vụ không rõ như kỳ vọng (07/2025 = 58,2), dữ liệu là mô hình CAMS.
+- TODO cho mai (Ngày 7, ngày nhẹ): so PM2.5 Hà Nội vs TP.HCM để kiểm tra mùa vụ; trả lời 2 câu tình huống Ngày 6; (tùy) watermark.
+- Mức tự viết (không AI) hôm nay: __ / 10 (tự điền khung upsert, tự viết retry + split_by_year; AI làm config, backfill.py, sửa unreachable)

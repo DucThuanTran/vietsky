@@ -20,3 +20,14 @@ def finish_stage(conn, run_id, stage, source, status,
         (status, rows_in, rows_out, error_message, run_id, stage, source),
     )
     conn.commit()
+
+def run_stage(conn, run_id, run_date, stage, source, func, *args) -> bool:
+    start_stage(conn, run_id, run_date, stage, source.name)
+    try:
+        rows_in, rows_out = func(*args)
+        finish_stage(conn, run_id, stage, source.name, "SUCCESS", rows_in, rows_out)
+        return True
+    except Exception as e:
+        conn.rollback()
+        finish_stage(conn, run_id, stage, source.name, "FAILED", error_message=str(e))
+        return False

@@ -271,3 +271,40 @@
 - `date - timedelta(days=n)`, không trừ thẳng số nguyên.
 - Giá trị chữ trong SQL phải có nháy đơn (`'weather'`), không có nháy = tên cột.
 - `DO NOTHING` giữ số cũ → bản dự báo mới không được cập nhật (lỗi im lặng tiềm ẩn) → upsert ở ngày 6.
+
+## Ngày 6 – 23/11 · Độ tin cậy + backfill lịch sử
+
+### 1. Upsert và cách chứng minh idempotency
+- `ON CONFLICT (location_id, ts_utc) DO UPDATE SET col = EXCLUDED.col, loaded_at = now()`: có rồi thì ghi đè, chưa có thì chèn. `EXCLUDED` = dòng vừa định chèn.
+- Lý do: dự báo và dữ liệu gần đây bị nguồn sửa lại (late-arriving data). `DO NOTHING` giữ số cũ sai mà không báo lỗi.
+- Với upsert, `rowcount` đếm cả dòng bị ghi đè → chạy lại vẫn `rows_out = rows_in`. **Bằng chứng idempotent giờ là `COUNT(*)` trước = sau**, `loaded_at` cho biết lần ghi cuối.
+- Muốn `rows_out` chỉ đếm dòng thật sự đổi: thêm `WHERE (cột cũ) IS DISTINCT FROM (EXCLUDED.cột)`.
+
+### 2. Retry + backoff + timeout
+| Loại lỗi | Ví dụ | Xử lý |
+|---|---|---|
+| Tạm thời phía server | 429, 500, 502, 503, 504 | Ghi lỗi, chờ, thử lại |
+| Mạng | Timeout, ConnectionError | Ghi lỗi, chờ, thử lại |
+| Do mình | 400, 404 | Ném ngay, thử lại vô ích |
+- Chờ tăng dần 2 → 4 → 8s (exponential backoff): gọi lại ngay khi bị 429 chỉ bị chặn tiếp.
+- Hết lượt → `raise` to rõ để `run_stage` ghi FAILED. `timeout=30` để request treo không giữ cả pipeline.
+- Bẫy: `raise` bên trong `try` = thoát hàm ngay → vòng retry chỉ chạy 1 lần. Lỗi tạm thời phải **ghi lại** (`error = ...`), không ném.
+
+### 3. Backfill
+- Backfill = nạp bù một khoảng quá khứ một lần; incremental = mỗi ngày nạp phần mới; full load = nạp lại tất cả.
+- **Chunking** theo năm: response vừa phải, lỗi chỉ mất một đoạn. Đoạn nối nhau không trùng, không hở (`cur = chunk_end + 1 ngày`).
+- **Checkpoint**: commit sau mỗi tỉnh-năm. Chết giữa chừng thì phần trước còn; nhờ upsert chạy lại từ đầu vẫn an toàn.
+- Giới hạn nguồn nằm trong config (`history_start`), code kẹp `max(start, history_start)`.
+- Ước tính thời gian = số lần gọi (năm × tỉnh × nguồn) × giây/lần: 340 × ~2,3s ≈ 13 phút (thực tế 14,5).
+- Raw lịch sử tách riêng `data/raw/{source}/backfill/` để không lẫn vào load hằng ngày.
+
+### 4. Kiểm chứng sau khi nạp lớn
+- Số dòng mỗi năm = 34 × 24 × số ngày (năm nhuận 298.656).
+- DQ4 (khe hở giờ) = 0 trên toàn lịch sử → mép nối backfill/daily liền.
+- NULL giải thích được (7 giờ đầu 04/08/2022) ghi vào README, không xem là lỗi.
+- Biểu đồ "nhìn hợp lý" chưa chắc đúng: mùa vụ PM2.5 Hà Nội yếu hơn kỳ vọng → nguồn là mô hình, cần đối chiếu.
+
+### 5. Python
+- `chunks, cur = [], start` (tên bên trái, giá trị bên phải). `chunks = [], cur = start` là gán chuỗi + unpack → lỗi.
+- Chạy script từ terminal: `PYTHONPATH=src .venv/bin/python pipelines/x.py`.
+- Hàm dùng chung cho nhiều script (`run_stage`) đặt trong package, không đặt trong script.

@@ -9,7 +9,7 @@ from vietsky.validate  import load_provinces
 from vietsky.extract   import fetch_hourly, save_raw
 from vietsky.transform import to_rows
 from vietsky.load      import get_conn, load_rows, load_locations
-from vietsky.run_log   import new_run_id, start_stage, finish_stage
+from vietsky.run_log   import new_run_id, run_stage
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -41,18 +41,6 @@ def run_load(conn, source, run_date) -> tuple[int, int]:
         rows_out += load_rows(conn, source.table, db_cols, rows)
     conn.commit()
     return rows_in, rows_out
-
-def run_stage(conn, run_id, run_date, stage, source, func, *args) -> bool:
-    start_stage(conn, run_id, run_date, stage, source.name)
-    try:
-        rows_in, rows_out = func(*args)
-        finish_stage(conn, run_id, stage, source.name, "SUCCESS", rows_in, rows_out)
-        return True
-    except Exception as e:
-        conn.rollback()
-        finish_stage(conn, run_id, stage, source.name, "FAILED", error_message=str(e))
-        return False
-
 
 def main():
     args = parse_args() ; run_id = new_run_id()

@@ -6,12 +6,17 @@ def get_conn():
     return psycopg.connect(**db_conninfo())
 
 def load_rows(conn, table, db_cols: list, rows: list) -> int:
+    value_cols = db_cols[2:]
     query = sql.SQL(
-        "INSERT INTO {} ({}) VALUES ({}) ON CONFLICT (location_id, ts_utc) DO NOTHING"
+        "INSERT INTO {table} ({cols}) VALUES ({vals}) "
+        "ON CONFLICT (location_id, ts_utc) DO UPDATE SET {updates}, loaded_at = now()"
     ).format(
-        sql.Identifier(table),
-        sql.SQL(", ").join(map(sql.Identifier, db_cols)),
-        sql.SQL(", ").join([sql.Placeholder()] * len(db_cols)),
+        table=sql.Identifier(table),
+        cols=sql.SQL(", ").join(map(sql.Identifier, db_cols)),
+        vals=sql.SQL(", ").join([sql.Placeholder()] * len(db_cols)),
+        updates=sql.SQL(", ").join(
+            sql.SQL("{c} = EXCLUDED.{c}").format(c=sql.Identifier(c)) for c in value_cols
+        ),
     )
     with conn.cursor() as cur:
         cur.executemany(query, rows)

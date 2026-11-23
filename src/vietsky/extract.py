@@ -1,6 +1,7 @@
 import requests
 import json
 import datetime
+import time
 from typing import Dict, Any
 from pathlib import Path
 
@@ -16,11 +17,21 @@ def fetch_hourly(lat: float, lon: float, variables:str , start_date: str, end_da
         "start_date": start_date,
         "end_date": end_date
     }
-    response = requests.get(url, params=params, timeout=30)
-
-    response.raise_for_status()
-
-    return response.json()
+    for attempt in range(1, 5):
+        try:
+            response = requests.get(url, params=params, timeout=30)
+            if response.status_code in {429, 500, 502, 503, 504}:
+                error = f"HTTP {response.status_code}"
+            else:
+                response.raise_for_status()
+                return response.json()
+        except (requests.Timeout, requests.ConnectionError) as e:
+            error = e
+        if attempt == 4:
+            raise RuntimeError(f"{url} failed after 4 attempts: {error}")
+        wait = 2 ** attempt
+        print(f"Retry {attempt}/4 after {wait}s: {error}")
+        time.sleep(wait)
 
 def fetch_weather(lat: float, lon: float, start_date: str, end_date: str) -> Dict[str, Any]:
     return fetch_hourly(lat, lon, "temperature_2m,relative_humidity_2m,precipitation,wind_speed_10m", start_date, end_date, url=WEATHER_URL)
