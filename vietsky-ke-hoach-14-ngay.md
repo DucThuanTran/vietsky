@@ -651,3 +651,13 @@ vietsky/
 - Chiến thắng hôm nay: 2,57 triệu dòng lịch sử trong 14,5 phút; PM2.5 Hà Nội theo tháng có đỉnh 71,4 (01/2025), các đỉnh rơi vào tháng 12 → 4. Điểm lạ: mùa vụ không rõ như kỳ vọng (07/2025 = 58,2), dữ liệu là mô hình CAMS.
 - TODO cho mai (Ngày 7, ngày nhẹ): so PM2.5 Hà Nội vs TP.HCM để kiểm tra mùa vụ; trả lời 2 câu tình huống Ngày 6; (tùy) watermark.
 - Mức tự viết (không AI) hôm nay: __ / 10 (tự điền khung upsert, tự viết retry + split_by_year; AI làm config, backfill.py, sửa unreachable)
+
+### Ngày 7 – 23/11 · ✅ Mốc 1
+- Trạng thái: ✅ Xong Bắt buộc (bỏ qua: tự viết lại `transform.py`; test do AI viết theo yêu cầu; chưa làm Bước 4 bù trễ)
+- Đã làm: cài `pytest` + `pytest.ini` (`pythonpath = src`); 8 test (5 cho `to_rows`, 3 cho `check_coordinates`) xanh 8/8; README v1: sơ đồ kiến trúc Mermaid (tự điền 4/4 đúng), luồng dữ liệu 5 ý, cách chạy 6 bước.
+- Khái niệm hiểu rõ: các chặng extract → raw → transform + load → staging; `dim_location` là dữ liệu tham chiếu; log nằm ở `ops.pipeline_runs`.
+- Khái niệm còn mơ hồ (từ bài kể luồng dữ liệu): transform đổi JSON → dòng + gắn múi giờ (không có CSV); schema lo định dạng, DQ checks lo nội dung; upsert + khoá chính bảo vệ dữ liệu khi chạy lại, `pipeline_runs` chỉ quan sát.
+- Lỗi gặp phải → cách khoanh vùng → cách sửa: không có lỗi code; 3 chỗ hiểu lệch vai trò thành phần trong bài kể → sửa trong README.
+- Chiến thắng hôm nay: pipeline hoàn chỉnh đầu tiên có test, README người khác chạy được.
+- TODO: push lên GitHub; (tùy) so mùa vụ PM2.5 Hà Nội vs TP.HCM, dọn `fetch_all.py`/`plot_raw.py`/`geocode.py`; tự viết lại `transform.py` khi có thời gian. Ngày 8: star schema.
+- Mức tự viết (không AI) hôm nay: __ / 10 (tự điền sơ đồ + viết bài kể luồng; AI viết test, README)
