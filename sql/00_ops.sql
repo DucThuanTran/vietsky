@@ -2,18 +2,23 @@ CREATE SCHEMA IF NOT EXISTS OPS;
 
 CREATE TABLE IF NOT EXISTS OPS.PIPELINE_RUNS
 (
-    RUN_ID        UUID        NOT NULL,           -- kiểu dữ liệu riêng của Postgres cho mã uuid
-    RUN_DATE      DATE        NOT NULL,           -- chỉ có ngày, không có giờ
+    RUN_ID        UUID        NOT NULL,
+    RUN_DATE      DATE        NOT NULL,
     STAGE         TEXT        NOT NULL
         CHECK (STAGE IN ('extract', 'load')),
     SOURCE        TEXT        NOT NULL
-        CHECK (SOURCE IN ('weather','air_quality')), -- 2 nguồn hiện có
+        CHECK (SOURCE IN ('weather','air_quality')),
     STATUS        TEXT        NOT NULL
         CHECK (STATUS IN ('RUNNING', 'SUCCESS', 'FAILED')),
     STARTED_AT    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    FINISHED_AT   TIMESTAMPTZ,                    -- NULL khi đang chạy
+    FINISHED_AT   TIMESTAMPTZ,
     ROWS_IN       INTEGER,
     ROWS_OUT      INTEGER,
     ERROR_MESSAGE TEXT,
     PRIMARY KEY (RUN_ID, STAGE, SOURCE)
 );
+
+-- Ngày 8: mở CHECK cho chặng mới (bảng đã tồn tại nên phải đổi bằng ALTER)
+ALTER TABLE OPS.PIPELINE_RUNS DROP CONSTRAINT IF EXISTS PIPELINE_RUNS_STAGE_CHECK;
+ALTER TABLE OPS.PIPELINE_RUNS ADD CONSTRAINT PIPELINE_RUNS_STAGE_CHECK
+    CHECK (STAGE IN ('extract', 'load', 'build_mart'));

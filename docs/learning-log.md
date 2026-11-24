@@ -332,3 +332,44 @@
 
 ### 4. README tối thiểu
 - Mục tiêu · sơ đồ kiến trúc (Mermaid, GitHub tự vẽ) · luồng dữ liệu · cách chạy từng bước · cảnh báo lệnh nguy hiểm (`01_staging.sql` xoá bảng staging).
+
+## Ngày 8 – 24/11 · Star schema và tầng mart
+
+### 1. Vì sao cần tầng mart
+- Staging được chuẩn hoá (normalized) để ghi đúng. Mart được phi chuẩn hoá (denormalized) để **đọc nhanh, hỏi dễ**.
+- Quy tắc nghiệp vụ (đổi múi giờ, tách giờ, tháng, mùa) được viết **một lần** trong SQL dựng mart. Người phân tích không phải tự nhớ, nên không quên.
+
+### 2. Thuật ngữ cốt lõi
+| Thuật ngữ | Nghĩa | Trong VietSky |
+|---|---|---|
+| Fact | Sự kiện đo được, rất nhiều dòng | `fact_air_quality_hourly`, `fact_weather_hourly` |
+| Dimension | Ngữ cảnh để lọc và nhóm, ít dòng | `dim_location` (34), `dim_date` (1.574) |
+| Grain | 1 dòng = 1 cái gì, luôn trùng với PK | 1 tỉnh × 1 giờ = `(location_key, ts_utc)` |
+| Measure | Cột để tính (`AVG`, `SUM`) | `pm2_5`, `us_aqi`, `temperature` |
+| Thuộc tính dim | Cột để `WHERE` / `GROUP BY` | `name`, `region`, `month`, `is_weekend` |
+| Surrogate key | Khoá số do kho tự sinh | `location_key SERIAL` |
+| Natural key | Khoá nghiệp vụ, bên ngoài có thể đổi nghĩa | `location_id = '01'` |
+| SCD1 / SCD2 | Ghi đè / thêm dòng kèm `valid_from`, `valid_to` | Đang dùng SCD1; SCD2 cho sáp nhập 01/7/2025 |
+| Conformed dimension | Dim dùng chung cho nhiều fact | 2 fact dùng chung `dim_location`, `dim_date` |
+
+### 3. Sai grain là lỗi im lặng
+- Trùng dòng hoặc trộn dòng giờ với dòng ngày thì `AVG` bị **lệch trọng số**, còn `SUM`/`COUNT` sai thẳng. Không có lỗi nào được báo.
+- Grain áp dụng cả cho **kết quả query**. Lấy `GROUP BY ts_utc` (thời điểm) cho ra 37.776 nhóm, mỗi nhóm 1 dòng, nên AVG vô nghĩa. Lấy `GROUP BY hour_vn` (giờ trong ngày) cho ra 288 ô, mỗi ô khoảng 113–155 giờ.
+
+### 4. Cách dựng mart
+- **Dim trước, fact sau**, vì fact phải tra khoá trong dim (key lookup qua JOIN).
+- **Dim dùng upsert**: `location_key` giữ nguyên qua các lần chạy. Nếu xoá rồi chèn lại, khoá sẽ đổi và fact cũ trỏ sai.
+- **Fact dùng full refresh** (`TRUNCATE` + `INSERT ... SELECT`): fact là dữ liệu dẫn xuất, dựng lại lúc nào cũng được.
+- `dim_date` sinh bằng `generate_series`, phải phủ khoảng ngày của **mọi nguồn** dùng nó.
+
+### 5. Đối soát và fail-safe
+- Inner JOIN âm thầm bỏ dòng không khớp, nên phải so `COUNT` staging với `COUNT` mart (`rows_in` / `rows_out` trong `pipeline_runs`).
+- Raise **trước** commit: lệch thì rollback, fact cũ còn nguyên. Thà dữ liệu cũ còn hơn dữ liệu sai.
+- Sự cố thật: FK chặn `date_key` 20261124 vì lịch chỉ tính từ 1 nguồn. Có 2 lớp bảo vệ đã hoạt động: FK chặn dòng mồ côi, rollback giữ dữ liệu cũ.
+
+### 6. Đọc kết quả bất thường
+- Tháng 4 có PM2.5 cao nhất ở Hà Nội. Trước khi kết luận, loại trừ theo thứ tự:
+  1. lỗi kỹ thuật (múi giờ, trùng, grain);
+  2. đặc tính nguồn (ở đây là mô hình CAMS);
+  3. hiện tượng thật (ở đây là đốt sinh khối mùa khô).
+- Theo giờ: thấp vào buổi trưa vì đối lưu pha loãng bụi; cao vào buổi tối vì lớp khí sát mặt đất ổn định giữ bụi lại.

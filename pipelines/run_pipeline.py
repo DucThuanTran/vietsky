@@ -10,6 +10,7 @@ from vietsky.extract   import fetch_hourly, save_raw
 from vietsky.transform import to_rows
 from vietsky.load      import get_conn, load_rows, load_locations
 from vietsky.run_log   import new_run_id, run_stage
+from vietsky.mart      import build_mart
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -56,6 +57,10 @@ def main():
                 continue
             if not run_stage(conn, run_id, args.date, "load", source,
                              run_load, conn, source, args.date):
+                ok = False
+                continue
+            if not run_stage(conn, run_id, args.date, "build_mart", source,
+                             build_mart, conn, source):
                 ok = False
     if not ok:
         sys.exit(1)

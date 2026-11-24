@@ -661,3 +661,15 @@ vietsky/
 - Chiến thắng hôm nay: pipeline hoàn chỉnh đầu tiên có test, README người khác chạy được.
 - TODO: push lên GitHub; (tùy) so mùa vụ PM2.5 Hà Nội vs TP.HCM, dọn `fetch_all.py`/`plot_raw.py`/`geocode.py`; tự viết lại `transform.py` khi có thời gian. Ngày 8: star schema.
 - Mức tự viết (không AI) hôm nay: __ / 10 (tự điền sơ đồ + viết bài kể luồng; AI viết test, README)
+
+### Ngày 8 – 24/11 · Star schema
+- Trạng thái: ✅ Xong Bắt buộc + 🏆 heatmap (chưa làm Mở rộng: SCD2 `dim_location`)
+- Đã làm: `sql/02_mart.sql` (schema `mart`: `dim_location` surrogate key `SERIAL`, `dim_date` theo giờ VN, 2 fact grain 1 tỉnh × 1 giờ, PK `(location_key, ts_utc)`, FK tới dim); `sql/mart/dims.sql` (upsert SCD1 + lịch `generate_series`), `fact_*.sql` (full refresh `TRUNCATE` + `INSERT ... SELECT`, tra khoá qua JOIN); `00_ops.sql` mở CHECK cho `build_mart`; `src/vietsky/mart.py` đối soát staging = mart, lệch thì raise trước commit; chặng `build_mart` trong `run_pipeline.py`. Lần chạy cuối: 6/6 chặng SUCCESS, 1.284.384 dòng mỗi fact.
+- Khái niệm hiểu rõ: grain = 1 dòng đại diện cho cái gì (= PK); measure (để tính) vs thuộc tính dim (để lọc/nhóm); `dim_date` theo giờ VN; dim upsert để khoá ổn định, fact full refresh vì là dữ liệu dẫn xuất.
+- Khái niệm còn mơ hồ: tên cột vs từ khoá (`f.hour` vs `EXTRACT(HOUR ...)`); tên cột vs giá trị chữ (`region` vs `'Hà Nội'`); 2 `PRIMARY KEY` trong 1 bảng; `CREATE TABLE` vs `TRUNCATE`; GROUP BY theo thời điểm (`ts_utc`) thay vì giờ trong ngày (`hour_vn`), nên mỗi nhóm chỉ có 1 dòng.
+- Lỗi gặp phải → cách khoanh vùng → cách sửa:
+  - `build_mart` weather FAILED: FK chặn `date_key = 20261124` không có trong `dim_date` → lịch chỉ lấy MIN/MAX từ staging air_quality, nguồn này chưa load ngày 24/11 → lấy khoảng ngày từ cả 2 bảng staging (`UNION ALL`). Nhờ rollback, fact cũ vẫn còn đủ 1.283.568 dòng.
+  - `wind_direction` không có trong staging → `wind_speed`.
+- Chiến thắng hôm nay: heatmap PM2.5 Hà Nội 12 tháng × 24 giờ; query chỉ còn JOIN + GROUP BY, không cần `AT TIME ZONE`. Đỉnh 19–23h, đáy 11–12h; tháng 4 cao nhất (58,0, ô cao nhất 68,9 lúc 19h), giả thuyết: mùa đốt sinh khối ở Đông Nam Á lục địa.
+- TODO cho mai (Ngày 9): trả lời 3 câu tình huống Ngày 8; (tùy) SCD2 `dim_location` theo đợt sáp nhập 01/7/2025.
+- Mức tự viết (không AI) hôm nay: __ / 10 (tự trả lời thiết kế, tự điền DDL + dims.sql + fact.sql + Q16; AI viết mart.py, sửa run_pipeline.py, sửa lỗi dim_date)
