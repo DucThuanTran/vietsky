@@ -373,3 +373,43 @@
   2. đặc tính nguồn (ở đây là mô hình CAMS);
   3. hiện tượng thật (ở đây là đốt sinh khối mùa khô).
 - Theo giờ: thấp vào buổi trưa vì đối lưu pha loãng bụi; cao vào buổi tối vì lớp khí sát mặt đất ổn định giữ bụi lại.
+
+## Ngày 9 – 25/11 · Định dạng lưu trữ: CSV vs Parquet
+
+### 1. Lưu theo dòng vs theo cột
+| | Lưu theo dòng (CSV, Postgres) | Lưu theo cột (Parquet) |
+|---|---|---|
+| Cách xếp | Các giá trị của 1 dòng nằm cạnh nhau | Các giá trị của 1 cột nằm cạnh nhau |
+| Mạnh khi | Ghi hoặc đọc nguyên dòng (giao dịch, OLTP) | Query phân tích chọn ít cột, có lọc (OLAP) |
+| Nén | Kém, vì xen lẫn nhiều kiểu | Tốt, vì cùng kiểu và lặp lại (34 tên tỉnh trên 1,28 triệu dòng) |
+| Kiểu dữ liệu | Chỉ là chữ, người đọc phải đoán (`'01'` → `1`) | Schema nằm trong file |
+
+### 2. Ba cách bỏ qua dữ liệu không cần đọc
+- **Column pruning:** chỉ đọc cột có trong query.
+- **Predicate pushdown:** footer của Parquet có min/max của từng row group; khối nào không thể khớp `WHERE` thì bỏ qua.
+- **Partition pruning:** thư mục `year=2025/month=1/` là cột ảo; `WHERE year = 2025 AND month = 1` chỉ mở 1/52 file. Kiểm chứng bằng `EXPLAIN ANALYZE` của DuckDB.
+
+### 3. Số đo thật của VietSky (1.284.384 dòng)
+| | Dung lượng | Query 1 tỉnh × 1 tháng |
+|---|---|---|
+| CSV | 91,6 MB | 0,145 s |
+| Parquet 1 file | 10,2 MB | 0,004 s |
+| Parquet phân vùng | 18,8 MB | 0,013 s |
+
+- Đọc toàn bộ: CSV ≈ Parquet, vì lấy đủ cột thì lưu theo cột không có lợi thế.
+- Phân vùng to hơn và chậm hơn 1 file ở 92 MB: mỗi file nhỏ có footer và từ điển riêng, cộng thêm chi phí liệt kê 52 file (small files problem).
+- Bài học: kỹ thuật tối ưu nào cũng có chi phí; quy mô dữ liệu quyết định nó có đáng không. Đo trước khi tin.
+
+### 4. Benchmark đúng cách
+- Mọi cách phải ra **cùng đáp án** (ở đây đều 71,4), nếu không thì "nhanh" là vô nghĩa.
+- Số nhanh bất thường thì kiểm tra lại (`len`, `sum`) trước khi ghi vào báo cáo.
+- Lần đọc đầu thường chậm hơn vì chưa có cache, nên chạy nhiều lần.
+
+### 5. Khi nào cần công cụ lớn hơn
+- **pandas / DuckDB:** dữ liệu vừa 1 máy (đến vài chục GB). VietSky đang ở đây.
+- **Spark trên HDFS / object storage:** dữ liệu không vừa 1 máy, cần xử lý phân tán trên nhiều máy.
+- **Kafka (streaming):** dữ liệu đến liên tục từng sự kiện thay vì theo mẻ mỗi ngày.
+- **Lakehouse:** file Parquet trên object storage, SQL chạy thẳng trên file (DuckDB chính là phiên bản thu nhỏ).
+
+### 6. Idempotency cho file
+- Ghi phân vùng sẽ thêm file mới vào thư mục, không ghi đè. Chạy 2 lần sẽ nhân đôi dữ liệu, nên phải xoá thư mục cũ trước (`shutil.rmtree`).

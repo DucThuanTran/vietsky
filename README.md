@@ -98,3 +98,20 @@ Lệnh: `PYTHONPATH=src .venv/bin/python pipelines/backfill.py --start 2022-08-0
 - Mỗi năm đủ 34 × 24 × số ngày (2024 năm nhuận: 298.656). Không có khe hở giờ (DQ4 = 0).
 - 238 dòng `pm2_5` NULL = 7 giờ đầu ngày 04/08/2022 × 34 tỉnh: dữ liệu thật bắt đầu từ 07:00 giờ VN.
 - Archive API không trễ (có dữ liệu đến hôm nay); vài ngày gần nhất có thể bị nguồn sửa lại, upsert sẽ ghi đè.
+
+## Benchmark CSV vs Parquet (25/11/2026)
+
+Dữ liệu: `fact_air_quality_hourly` JOIN dim, 1.284.384 dòng × 11 cột, xuất bằng `pipelines/export_lake.py` ra `data/lake/`. Đo bằng `pipelines/benchmark.py` (pandas 3.1, DuckDB 2.0, MacBook SSD). Query mẫu: PM2.5 trung bình của Hà Nội tháng 1/2025. Cả 3 định dạng cùng ra **71,4**.
+
+| Định dạng | Dung lượng | Đọc toàn bộ (pandas) | Query 1 tỉnh × 1 tháng (DuckDB) |
+|---|---|---|---|
+| CSV | 91,6 MB | 0,07–0,09 s | 0,145 s |
+| Parquet 1 file | 10,2 MB | 0,09–0,13 s | 0,004 s |
+| Parquet phân vùng `year=/month=` (52 file) | 18,8 MB | — | 0,013 s |
+
+**Kết luận:** Parquet nhỏ hơn CSV **9 lần**; query phân tích nhanh hơn **~35 lần** (1 file) và **~11 lần** (phân vùng).
+
+- Đọc toàn bộ cả 11 cột thì Parquet không nhanh hơn: lợi thế lưu theo cột chỉ có khi query chọn ít cột và có lọc.
+- Partition pruning có hoạt động (`Scanning Files: 1/52`), nhưng với 92 MB thì chi phí liệt kê 52 file lớn hơn lợi ích bỏ qua file. Thống kê min/max trong footer của 1 file Parquet đã đủ để bỏ qua dữ liệu không cần đọc (predicate pushdown).
+- Bản phân vùng to gần gấp đôi vì mỗi file nhỏ mang footer và từ điển nén riêng (small files problem). Phân vùng chỉ đáng giá khi dữ liệu lên hàng trăm GB trên object storage.
+- CSV làm mất kiểu dữ liệu: DuckDB đọc `location_id` thành số nguyên (`'01'` → `1`), `us_aqi` thành số thực. Parquet lưu schema trong file nên giữ nguyên kiểu.

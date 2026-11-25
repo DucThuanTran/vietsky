@@ -673,3 +673,17 @@ vietsky/
 - Chiến thắng hôm nay: heatmap PM2.5 Hà Nội 12 tháng × 24 giờ; query chỉ còn JOIN + GROUP BY, không cần `AT TIME ZONE`. Đỉnh 19–23h, đáy 11–12h; tháng 4 cao nhất (58,0, ô cao nhất 68,9 lúc 19h), giả thuyết: mùa đốt sinh khối ở Đông Nam Á lục địa.
 - TODO cho mai (Ngày 9): trả lời 3 câu tình huống Ngày 8; (tùy) SCD2 `dim_location` theo đợt sáp nhập 01/7/2025.
 - Mức tự viết (không AI) hôm nay: __ / 10 (tự trả lời thiết kế, tự điền DDL + dims.sql + fact.sql + Q16; AI viết mart.py, sửa run_pipeline.py, sửa lỗi dim_date)
+
+### Ngày 9 – 25/11 · Định dạng lưu trữ: CSV vs Parquet
+- Trạng thái: ✅ Xong Bắt buộc (chưa làm Mở rộng: PySpark / sơ đồ Kafka)
+- Đã làm: cài `pyarrow`, `duckdb`; `pipelines/export_lake.py` xuất mart (JOIN dim, 1.284.384 dòng) ra `data/lake/`: CSV, Parquet 1 file, Parquet phân vùng `year=/month=` (52 file); `pipelines/benchmark.py` đo dung lượng, thời gian đọc toàn bộ (pandas), query 1 tỉnh × 1 tháng (DuckDB) và kiểm tra cả 3 cùng đáp án; bảng benchmark trong README.
+- Khái niệm hiểu rõ: lưu theo dòng vs theo cột; Parquet lưu schema trong file; partition pruning (`Scanning Files: 1/52`); benchmark phải kiểm tra cùng kết quả, không chỉ đo tốc độ; ghi phân vùng phải xoá thư mục cũ để chạy lại không nhân đôi.
+- Khái niệm còn mơ hồ: gán kết quả vào biến rồi truyền đi (`cols = ...` → `columns=cols`); `return pd.DataFrame` (trả về class) vs `return pd.DataFrame(...)` (trả về bảng); `lambda` để truyền "việc cần làm" vào hàm đo giờ; generator `sum(... for f in ... if ...)`; thụt lề `to_parquet` trong `if` làm lần đầu không ghi gì.
+- Lỗi gặp phải → cách khoanh vùng → cách sửa:
+  - `read_from_db` trả về `None` / class → `return pd.DataFrame(cur.fetchall(), columns=cols)`.
+  - `size_mb` chia một generator → `sum(f.stat().st_size ...)`.
+  - DuckDB 2.0 bỏ `fetchone()` (pseudocode của AI sai) → `fetchall()[0][0]`.
+  - `pd.read_csv` 92 MB trong 0,07s trông đáng ngờ → kiểm tra `len` và `sum` → đúng thật (pandas 3 đọc đa luồng).
+- Chiến thắng hôm nay: Parquet nhỏ hơn CSV 9 lần, query nhanh hơn ~35 lần. Dự đoán của bạn: kích thước CSV đúng, tốc độ phân vùng ~10 lần đúng. Bất ngờ: phân vùng to hơn và chậm hơn Parquet 1 file ở quy mô 92 MB.
+- TODO cho mai (Ngày 10): trả lời 3 câu tình huống Ngày 8 + 3 câu Ngày 9; (tùy) sơ đồ Kafka cho dữ liệu thời gian thực.
+- Mức tự viết (không AI) hôm nay: __ / 10 (tự viết export_lake.py và benchmark.py theo pseudocode; AI sửa return, size_mb, dòng in, API DuckDB)
