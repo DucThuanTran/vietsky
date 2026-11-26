@@ -19,6 +19,22 @@ CREATE TABLE IF NOT EXISTS OPS.PIPELINE_RUNS
 );
 
 -- Ngày 8: mở CHECK cho chặng mới (bảng đã tồn tại nên phải đổi bằng ALTER)
+BEGIN;
 ALTER TABLE OPS.PIPELINE_RUNS DROP CONSTRAINT IF EXISTS PIPELINE_RUNS_STAGE_CHECK;
 ALTER TABLE OPS.PIPELINE_RUNS ADD CONSTRAINT PIPELINE_RUNS_STAGE_CHECK
-    CHECK (STAGE IN ('extract', 'load', 'build_mart'));
+    CHECK (STAGE IN ('extract', 'load', 'build_mart', 'quality_check'));
+COMMIT;
+
+create table if not exists ops.dq_results
+(
+    run_id uuid not null,
+    run_date date not null,
+    source text not null,
+    check_name text not null,
+    severity text not null check (severity in ('CRITICAL', 'WARNING')),
+    status text not null check (status in ('PASS', 'FAIL')),
+    failed_rows integer not null,
+    threshold integer not null,
+    checked_at timestamptz not null default now(),
+    primary key (run_id, source, check_name)
+);

@@ -413,3 +413,47 @@
 
 ### 6. Idempotency cho file
 - Ghi phân vùng sẽ thêm file mới vào thư mục, không ghi đè. Chạy 2 lần sẽ nhân đôi dữ liệu, nên phải xoá thư mục cũ trước (`shutil.rmtree`).
+
+## Ngày 10 – 26/11 · Kiểm tra chất lượng tự động + đối soát
+
+### 1. Vì sao phải tự động
+- `dq_checks.sql` chạy tay đã "mục": DQ5 so `COUNT(*) <> 192` (8 ngày × 24 giờ). Sau backfill 4 năm, check báo lỗi cả 34 tỉnh, và không ai biết vì không ai chạy.
+- Quy tắc viết cứng + chạy tay = âm thầm sai theo thời gian. Tự động + lưu kết quả = có lịch sử để tra.
+
+### 2. Thuật ngữ
+| Thuật ngữ | Ý nghĩa | Ở VietSky |
+|---|---|---|
+| Data quality rule | 1 câu SQL đếm số dòng vi phạm + ngưỡng | `RULES` trong `quality.py` |
+| Threshold | Số dòng lỗi tối đa vẫn chấp nhận | 0 cho mọi rule hiện tại |
+| Severity | CRITICAL dừng (FAILED), WARNING ghi lại | `pm25_range` là WARNING |
+| Completeness | Đủ chưa | `all_provinces`, `reconcile_daily` |
+| Freshness | Mới chưa | `freshness_24h` theo `loaded_at` |
+| Schema drift | Nguồn tự đổi cấu trúc | `raw_schema` trên JSON |
+| Reconciliation | So số dòng giữa các tầng | raw = staging = mart theo ngày |
+
+### 3. Freshness: đo bằng mốc mình kiểm soát
+- `MAX(ts_utc)` sai vì API forecast trả cả giờ tương lai, nên `NOW() - MAX(ts_utc)` âm và check luôn đạt, kể cả khi API trả dữ liệu cũ.
+- `MAX(loaded_at)` đúng: trả lời "mình nạp lần cuối khi nào". Upsert ghi `loaded_at = now()`.
+- Completeness ≠ freshness: đủ 34 × 24 nhưng 3 ngày tuổi là complete mà stale.
+
+### 4. Thiết kế quy tắc dạng dữ liệu
+- Mỗi rule là 1 dict (`name`, `severity`, `threshold`, `sql`, tuỳ chọn `source`). Thêm rule = thêm dict, không sửa hàm chạy (giống dbt tests, Great Expectations).
+- Chỉ soi phần vừa nạp (incremental check, khung `%(start)s`–`%(end)s`): nhanh, và lỗi hôm nay không bị pha loãng trong 4 năm dữ liệu.
+- Grain của `dq_results` = 1 check × 1 nguồn × 1 lần chạy; lưu cả `threshold` vì ngưỡng có thể đổi theo thời gian.
+
+### 5. Đối soát khoanh vùng lỗi
+- So theo **từng ngày** giờ VN, lấy raw làm chuẩn (nguồn sự thật).
+- `raw ≠ staging` → lỗi ở transform/load. `staging ≠ mart` → lỗi ở build_mart.
+- Reconcile tổng trong `build_mart` không bắt được mart **cũ**: build FAILED → rollback → mart giữ bản hôm qua. Đối soát theo ngày in ra `2026-11-24: raw=816 staging=816 mart=0`.
+- Đếm ngày phải cùng múi giờ: không quy UTC về giờ VN thì mỗi ngày lệch 7 × 34 = 238 dòng, báo lỗi giả.
+
+### 6. Những lỗi im lặng của chính hệ thống kiểm tra
+- So `"fail"` với `"FAIL"` → không bao giờ dừng pipeline. Có hệ thống kiểm tra mà như không.
+- `if not (816)`, `.get(day, 816)` → đối soát luôn đạt.
+- Không commit trước `raise` → rollback xoá bằng chứng.
+- Bài học: **kiểm tra cả bộ kiểm tra** bằng cách gây lỗi cố ý (fault injection) và xem nó có trượt không.
+
+### 7. Điểm yếu còn lại: kiểm tra sau khi công bố
+- `quality_check` chạy sau `build_mart`, nên dữ liệu lỗi đã vào mart trước khi bị phát hiện.
+- Quality gate: chạy rule trên staging trước `build_mart`, CRITICAL thì không build.
+- Write-Audit-Publish: ghi bảng tạm → kiểm tra → đạt mới công bố (swap). Lakehouse (Iceberg, Delta) làm bằng branch/snapshot.

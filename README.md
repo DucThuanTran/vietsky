@@ -9,9 +9,9 @@ flowchart LR
     A[Open-Meteo API<br/>forecast · archive · air quality] -->|extract| B[data/raw/ JSON<br/>giữ vĩnh viễn]
     B -->|transform + load| C[(Postgres<br/>stg_weather_hourly<br/>stg_air_quality_hourly)]
     D[config/provinces.csv] -->|load_locations| E[(dim_location)]
-    C --> F[sql/dq_checks.sql<br/>0 dòng = đạt]
     C -->|build_mart| M[(mart: star schema<br/>dim_location · dim_date<br/>fact_weather_hourly<br/>fact_air_quality_hourly)]
     E --> M
+    B & C & M -->|quality_check| Q[(ops.dq_results<br/>6 quy tắc + đối soát)]
     G[run_pipeline.py / backfill.py] -.ghi log.-> H[(ops.pipeline_runs)]
 ```
 
@@ -19,8 +19,8 @@ flowchart LR
 1. **Nguồn:** VietSky lấy dữ liệu theo giờ của 34 tỉnh từ Open-Meteo, gồm 2 nguồn là thời tiết và chất lượng không khí. Mỗi lần gọi API có retry kèm backoff khi API lỗi tạm thời.
 2. **Raw:** response được lưu nguyên dạng JSON vào `data/raw/` trước khi xử lý. Raw là nguồn sự thật: database hỏng thì dựng lại được từ raw, không cần gọi lại API.
 3. **Transform + load:** mỗi giờ thành 1 dòng, giờ địa phương được gắn múi giờ để lưu chuẩn UTC, tên cột API được đổi sang tên cột trong DB. Dữ liệu ghi vào bảng staging bằng upsert theo khoá (tỉnh, giờ), nên chạy lại không sinh trùng và số liệu bị nguồn sửa sẽ được cập nhật.
-4. **Chất lượng:** `sql/dq_checks.sql` dò dòng trùng, giá trị thiếu, giá trị vô lý, giờ bị hở và tỉnh bị thiếu (0 dòng = đạt). Unit test (`pytest`) giữ cho logic biến đổi không bị hỏng lại khi sửa code.
-5. **Mart:** chặng `build_mart` dựng star schema trong schema `mart`. Grain của fact là 1 tỉnh × 1 giờ; giờ, ngày, tháng, mùa được tính sẵn theo giờ VN. Dim được upsert để khoá ổn định, fact được dựng lại toàn bộ. Số dòng staging phải bằng số dòng mart, lệch thì rollback và giữ dữ liệu cũ.
+4. **Mart:** chặng `build_mart` dựng star schema trong schema `mart`. Grain của fact là 1 tỉnh × 1 giờ; giờ, ngày, tháng, mùa được tính sẵn theo giờ VN. Dim được upsert để khoá ổn định, fact được dựng lại toàn bộ. Số dòng staging phải bằng số dòng mart, lệch thì rollback và giữ dữ liệu cũ.
+5. **Chất lượng:** chặng `quality_check` (`src/vietsky/quality.py`) chạy sau mart, kiểm tra phần vừa nạp (8 ngày) và ghi từng kết quả vào `ops.dq_results`. Quy tắc trên staging: không NULL ở khoá, không trùng khoá, đủ 34 tỉnh, độ mới (`loaded_at` trong 24 giờ), PM2.5 trong 0–1000. Kiểm tra schema JSON raw (đủ `time` và các cột đo). Đối soát raw = staging = mart theo từng ngày giờ VN, để biết dữ liệu rơi ở tầng nào. Lỗi mức `CRITICAL` làm chặng FAILED; `WARNING` chỉ ghi lại. Unit test (`pytest`) giữ cho logic biến đổi không bị hỏng lại khi sửa code.
 6. **Vận hành:** mỗi lần chạy có một `run_id`. Mỗi chặng ghi 1 dòng vào `ops.pipeline_runs` gồm trạng thái, thời gian, `rows_in`/`rows_out` và lỗi, để biết pipeline có chạy không và hỏng ở chặng nào.
 
 ## Cách chạy
@@ -39,7 +39,7 @@ Yêu cầu: Docker, Python 3.12+.
    psql -h localhost -p 5433 -U <user> -d <db> -f sql/01_staging.sql
    psql -h localhost -p 5433 -U <user> -d <db> -f sql/02_mart.sql
    ```
-4. Chạy pipeline hằng ngày (extract → load → build_mart; 8 ngày gần nhất tính đến `--date`, mặc định là hôm nay):
+4. Chạy pipeline hằng ngày (extract → load → build_mart → quality_check; 8 ngày gần nhất tính đến `--date`, mặc định là hôm nay):
    ```bash
    PYTHONPATH=src .venv/bin/python pipelines/run_pipeline.py --date 2026-11-23
    ```
@@ -50,7 +50,13 @@ Yêu cầu: Docker, Python 3.12+.
 6. Kiểm tra:
    ```bash
    .venv/bin/python -m pytest
-   psql -h localhost -p 5433 -U <user> -d <db> -f sql/dq_checks.sql
+   ```
+   Xem kết quả kiểm tra chất lượng của lần chạy gần nhất:
+   ```sql
+   SELECT source, check_name, severity, status, failed_rows
+   FROM ops.dq_results
+   WHERE run_id = (SELECT run_id FROM ops.dq_results ORDER BY checked_at DESC LIMIT 1)
+   ORDER BY status, source, check_name;
    ```
 
 ## Data profiling

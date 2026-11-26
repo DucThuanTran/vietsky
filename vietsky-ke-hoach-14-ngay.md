@@ -687,3 +687,18 @@ vietsky/
 - Chiến thắng hôm nay: Parquet nhỏ hơn CSV 9 lần, query nhanh hơn ~35 lần. Dự đoán của bạn: kích thước CSV đúng, tốc độ phân vùng ~10 lần đúng. Bất ngờ: phân vùng to hơn và chậm hơn Parquet 1 file ở quy mô 92 MB.
 - TODO cho mai (Ngày 10): trả lời 3 câu tình huống Ngày 8 + 3 câu Ngày 9; (tùy) sơ đồ Kafka cho dữ liệu thời gian thực.
 - Mức tự viết (không AI) hôm nay: __ / 10 (tự viết export_lake.py và benchmark.py theo pseudocode; AI sửa return, size_mb, dòng in, API DuckDB)
+
+### Ngày 10 – 26/11 · Kiểm tra chất lượng tự động + đối soát
+- Trạng thái: ✅ Xong Bắt buộc + một phần Mở rộng (phân mức `WARNING`/`CRITICAL`; chưa tách quality gate trước `build_mart`)
+- Đã làm: bảng `ops.dq_results` (grain 1 check × 1 nguồn × 1 lần chạy, PK `(run_id, source, check_name)`), mở CHECK stage cho `quality_check` (ALTER bọc trong `BEGIN/COMMIT`); `src/vietsky/quality.py`: 5 quy tắc SQL dạng `list[dict]` (`not_null_key`, `unique_key`, `all_provinces`, `freshness_24h`, `pm25_range`) chỉ soi khung 8 ngày vừa nạp, `raw_schema` trên JSON raw, `reconcile_daily` raw = staging = mart theo ngày giờ VN; commit kết quả trước khi raise; chặng `quality_check` trong `run_pipeline.py`. Lần chạy 26/11: 8/8 chặng SUCCESS, 13/13 check PASS.
+- Khái niệm hiểu rõ: freshness phải đo bằng `loaded_at` (mốc mình kiểm soát), không phải `ts_utc` (forecast có giờ tương lai, nên đạt giả); completeness vs freshness; đối soát theo ngày khoanh vùng tầng làm rơi dữ liệu; CRITICAL dừng, WARNING ghi lại; lưu bằng chứng trước khi báo lỗi.
+- Khái niệm còn mơ hồ: rule soi bảng nào (staging) vs bảng nào lưu kết quả (`dq_results`); cột staging vs cột mart (`location_id` vs `location_key`, `region`, `hour_vn`); `ON CONFLICT` của staging nằm ở `load.py`; phương thức dict (`.keys()`/`.values()`/`.get(k, mặc định)`); điền biến (`source.table`, `r == s == m`) vs giá trị cụ thể (`24`, `816`); `*args` của `run_stage` truyền tham số theo vị trí; code đặt ở cấp module vs trong `main()`.
+- Lỗi gặp phải → cách khoanh vùng → cách sửa:
+  - ALTER nhắm nhầm `pipeline_runs_status_check` → sẽ xoá mất ràng buộc trạng thái → sửa thành `stage_check`, bọc transaction.
+  - PK `dq_results` thiếu `check_name` → check thứ 2 trùng khoá → `(run_id, source, check_name)`.
+  - So `"fail"`/`"critical"` chữ thường → danh sách CRITICAL luôn rỗng, pipeline không bao giờ dừng (lỗi im lặng) → chữ hoa khớp CHECK constraint.
+  - Thiếu `conn.commit()` trước `raise` → `run_stage` rollback mất kết quả → thêm commit.
+  - `if not (816)` luôn sai, `.get(day, 816)` → đối soát không bao giờ báo lỗi → `r == s == m`, mặc định 0.
+- Chiến thắng hôm nay: pipeline tự trả lời "hôm nay dữ liệu có ổn không". Gây lỗi cố ý: mất cột `wind_speed_10m` → `raw_schema` chỉ đúng file; xoá ngày 24/11 khỏi mart → `reconcile` in `raw=816 staging=816 mart=0`.
+- TODO cho mai (Ngày 11): trả lời 3 câu tình huống Ngày 10 (+ nợ Ngày 8, 9); (tùy) quality gate trên staging trước `build_mart` (Write-Audit-Publish); DQ5 trong `dq_checks.sql` còn viết cứng 192.
+- Mức tự viết (không AI) hôm nay: __ / 10 (tự điền DDL, 5 quy tắc SQL, khung run_rule/save_results/run_quality; AI viết khung hàm, sửa nhiều chỗ điền giá trị cụ thể, viết phần raw_schema/reconcile, gắn chặng vào pipeline)
