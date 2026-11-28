@@ -7,5 +7,28 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
 
+  airflow:
+    image: apache/airflow:3.3.2-python3.12
+    profiles: ["airflow"]
+    command: standalone
+    depends_on:
+      - postgres
+    env_file: .env
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/airflow
+      AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/project/dags
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__CORE__DEFAULT_TIMEZONE: Asia/Ho_Chi_Minh
+      AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: "True"
+      _PIP_ADDITIONAL_REQUIREMENTS: psycopg[binary]==3.3.9 python-dotenv==1.2.4
+      PYTHONPATH: /opt/airflow/project/src
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+    ports:
+      - "8080:8080"
+    volumes:
+      - .:/opt/airflow/project
+
 volumes:
   pgdata:

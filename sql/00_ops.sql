@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS OPS.PIPELINE_RUNS
 BEGIN;
 ALTER TABLE OPS.PIPELINE_RUNS DROP CONSTRAINT IF EXISTS PIPELINE_RUNS_STAGE_CHECK;
 ALTER TABLE OPS.PIPELINE_RUNS ADD CONSTRAINT PIPELINE_RUNS_STAGE_CHECK
-    CHECK (STAGE IN ('extract', 'load', 'build_mart', 'quality_check'));
+    CHECK (STAGE IN ('extract', 'load', 'build_mart', 'quality_check', 'reconcile'));
 COMMIT;
 
 create table if not exists ops.dq_results

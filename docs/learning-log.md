@@ -457,3 +457,81 @@
 - `quality_check` chạy sau `build_mart`, nên dữ liệu lỗi đã vào mart trước khi bị phát hiện.
 - Quality gate: chạy rule trên staging trước `build_mart`, CRITICAL thì không build.
 - Write-Audit-Publish: ghi bảng tạm → kiểm tra → đạt mới công bố (swap). Lakehouse (Iceberg, Delta) làm bằng branch/snapshot.
+
+## Ngày 11 – 28/11 · Điều phối bằng Airflow
+
+### 1. Orchestration là gì
+- Script `run_pipeline.py` + cron chỉ biết "chạy lúc 7h". Orchestrator (Airflow) biết thêm: **thứ tự** các bước, **chạy song song** bước độc lập, **retry** từng bước, **lịch sử** mỗi lần chạy, giao diện để xem bước nào đỏ.
+- DAG (Directed Acyclic Graph) = đồ thị có hướng, không vòng: mỗi task là 1 nút, mũi tên là phụ thuộc. "Không vòng" để luôn có thứ tự chạy xác định.
+
+### 2. DAG của VietSky
+```
+sync_locations → extract_weather     → load_weather     → quality_check_weather     → build_mart_weather     → reconcile_weather
+               → extract_air_quality → load_air_quality → quality_check_air_quality → build_mart_air_quality → reconcile_air_quality
+```
+- 2 nhánh độc lập nên 2 extract chạy song song: lần chạy đầu 96s so với 160s chạy tuần tự.
+- `quality_check` đứng **trước** `build_mart` (quality gate, Write-Audit-Publish): dữ liệu lỗi không vào mart. `reconcile` đứng sau, `trigger_rule="all_done"` để vẫn chạy khi build_mart hỏng.
+
+### 3. Retry chỉ an toàn khi task idempotent
+- `retries=2` cho extract/load/build_mart (lỗi tạm thời: mạng, API 5xx, DB bận). `retries=0` cho quality_check/reconcile: dữ liệu không tự đổi, thử lại vẫn trượt.
+- Retry gọi lại `start_stage` với cùng `run_id` → INSERT trùng khoá. Sửa: `ON CONFLICT ... DO UPDATE` cho cả `ops.pipeline_runs` và `ops.dq_results`.
+- `run_id` sinh **xác định** từ run của Airflow (`uuid5(dag_run.run_id)`), nên retry ghi đè đúng dòng của lần chạy đó.
+
+### 4. Lịch và ngày xử lý
+- `schedule="0 7 * * *"` (cron: phút 0, giờ 7, mọi ngày), `start_date` có múi giờ VN, `catchup=False` (không tự chạy bù các ngày đã lỡ).
+- `run_date` lấy từ `logical_date` của Airflow, không phải `date.today()`: chạy lại run của ngày 25 thì vẫn xử lý ngày 25.
+- Catchup/backfill: bật `catchup=True` thì Airflow tạo run cho mọi ngày từ `start_date` đến nay; hoặc `airflow dags backfill`. Chỉ an toàn vì task idempotent.
+
+### 5. Chạy được trong container
+- Đường dẫn tương đối (`Path("data/raw")`) phụ thuộc thư mục đang đứng → đổi sang tuyệt đối theo vị trí file (`BASE_DIR`).
+- Host DB khác nhau: máy thật `localhost:5433`, trong Docker là `postgres:5432` → đọc từ biến môi trường `POSTGRES_HOST/PORT`.
+- Metadata của Airflow (DAG run, task state) nằm trong database `airflow` riêng, cùng server Postgres.
+
+## Ngày 12 – 28/11 · Dashboard 2 trang (serving layer)
+
+### 1. Serving layer
+- Tầng cuối: người dùng đọc **mart**, không đọc staging. Query dashboard ngắn vì grain và giờ VN đã tính sẵn ở mart.
+- `st.cache_data(ttl="10m")`: không query lại DB mỗi lần người dùng bấm.
+
+### 2. Trang "Bầu trời Việt Nam" (phân tích)
+- KPI 30 ngày, bản đồ điểm 34 tỉnh (WGS84 lat/lon, màu theo PM2.5), xếp hạng, xu hướng theo tháng, heatmap giờ × tháng, phân tán PM2.5 theo ngày với lượng mưa/gió.
+- Bản đồ dùng hệ toạ độ WGS84 (EPSG:4326) như GPS. VN-2000 là hệ toạ độ quốc gia, dùng trong bản đồ địa chính; trộn 2 hệ sẽ lệch vài trăm mét.
+- Lat/lon bị đảo: điểm rơi ra ngoài Việt Nam (lat 105 không tồn tại; API trả 400). Check toạ độ trong `validate.py` chặn từ đầu.
+
+### 3. Trang "Phòng điều hành" (vận hành)
+- Độ mới từng nguồn so với SLA 24h, các run gần nhất, số dòng qua từng chặng, tỷ lệ đạt DQ theo ngày, các check trượt gần nhất.
+- Đây là trang của Data Operations: trả lời "pipeline có chạy, có đủ, có đúng, có mới không" mà không cần mở SQL.
+
+## Ngày 13 – 28/11 · Diễn tập sự cố
+
+### 1. Vì sao phải tự gây lỗi
+- Check chưa từng trượt thì chưa chứng minh được là nó hoạt động. Chaos testing = gây lỗi có chủ đích, có kiểm soát, rồi đo: **có phát hiện không, sau bao lâu (MTTD), sửa mất bao lâu (MTTR)**.
+- `chaos.py` bật lỗi bằng biến môi trường (`VIETSKY_CHAOS=api_500,null_province`), code chính chỉ có các "điểm móc" nhỏ, không có `if` rải rác.
+
+### 2. Kết quả 6 kịch bản
+| # | Lỗi | Kết quả | Bài học |
+|---|---|---|---|
+| 01 | API 500 | extract FAILED sau 4 lần retry (16s) | Retry 2 lớp; cửa sổ 8 ngày tự bù 1 ngày lỡ |
+| 02 | Đổi tên trường | load crash `'pm2_5'`, `raw_schema` không kịp chạy | Validate ở ranh giới, fail fast, thông báo rõ |
+| 03 | Toàn NULL 1 tỉnh | Lần 1 lọt vào mart; thêm rule → cổng chặn | Đủ dòng ≠ đủ dữ liệu; cổng không dọn lỗi cũ |
+| 04 | Đảo lat/lon | Chặn ngay ở `sync_locations` | Hàm kiểm tra có mà không được gọi = không có |
+| 05 | Lệch múi giờ | Không check nào bắt | Lỗi "hợp lệ nhưng sai" cần anomaly check |
+| 06 | Trùng dòng | PK → unique_key → reconcile | Phòng thủ nhiều lớp |
+
+### 3. Postmortem không đổ lỗi (blameless)
+Cấu trúc: **Triệu chứng → Phát hiện lúc nào, bằng gì → Khoanh vùng → Nguyên nhân gốc (5 Whys) → Cách sửa → Phòng tránh**. Hỏi "vì sao hệ thống để lọt", không hỏi "ai làm sai".
+
+### 4. 5 Whys
+Hỏi "vì sao" liên tiếp đến khi gặp nguyên nhân **sửa được trong hệ thống**. Ví dụ sự cố 03: Hà Nội trống → mart có NULL → không có rule NULL → bộ rule coi đủ dòng là đủ → sửa: thêm rule cấp giá trị.
+
+### 5. Runbook
+Đi theo dòng chảy dữ liệu, dừng ở tầng đầu tiên bất thường: có chạy không → đến không → đủ không → đúng cấu trúc không → xử lý đúng không → ghi đủ vào đích không → đúng giờ không. Xem `docs/runbook.md`.
+
+### 6. Monitoring vs observability
+- Monitoring: theo dõi các chỉ số biết trước (run FAILED, freshness > 24h).
+- Observability: đủ log và dữ liệu (`pipeline_runs`, `dq_results`, raw) để trả lời câu hỏi **chưa biết trước** khi có sự cố mới.
+
+## Ngày 14 – 28/11 · Hoàn thiện
+- README: giới thiệu, sơ đồ, cách chạy (script, Airflow, dashboard), benchmark, bảng check chất lượng, bảng sự cố, bài học, nguồn dữ liệu (Open-Meteo CC BY 4.0).
+- Kiểm tra repo: không track file môi trường, `data/` (399 MB) nằm trong `.gitignore`, lịch sử git sạch.
+- 17 unit test (transform, validate, quality, chaos).

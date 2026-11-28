@@ -702,3 +702,13 @@ vietsky/
 - Chiến thắng hôm nay: pipeline tự trả lời "hôm nay dữ liệu có ổn không". Gây lỗi cố ý: mất cột `wind_speed_10m` → `raw_schema` chỉ đúng file; xoá ngày 24/11 khỏi mart → `reconcile` in `raw=816 staging=816 mart=0`.
 - TODO cho mai (Ngày 11): trả lời 3 câu tình huống Ngày 10 (+ nợ Ngày 8, 9); (tùy) quality gate trên staging trước `build_mart` (Write-Audit-Publish); DQ5 trong `dq_checks.sql` còn viết cứng 192.
 - Mức tự viết (không AI) hôm nay: __ / 10 (tự điền DDL, 5 quy tắc SQL, khung run_rule/save_results/run_quality; AI viết khung hàm, sửa nhiều chỗ điền giá trị cụ thể, viết phần raw_schema/reconcile, gắn chặng vào pipeline)
+
+### Ngày 11–14 – 28/11 · Chế độ tăng tốc (AI viết code, bạn nắm khái niệm)
+- Trạng thái: ✅ Ngày 11 Airflow · ✅ Ngày 12 dashboard 2 trang · ✅ Ngày 13 6/6 kịch bản (4 diễn tập thật + 2 tabletop) + runbook · ✅ Ngày 14 README, kiểm tra repo. Chưa làm: ảnh chụp DAG/dashboard cho README, câu CV với số thật (bạn tự viết), ôn bản đồ thuật ngữ.
+- Đã làm:
+  - Ngày 11: Airflow 3.3.2 `standalone` trong Docker Compose (profile `airflow`, metadata ở database `airflow`); DAG `vietsky_daily` 7h giờ VN, 2 nhánh song song, `retries=2` (kiểm tra thì 0), `reconcile` với `trigger_rule=all_done`; tách `quality_check` (cổng, trước mart) và `reconcile` (sau mart); `run_id` = `uuid5(dag_run.run_id)`; log `ON CONFLICT` để retry không trùng khoá; đường dẫn tuyệt đối và host DB qua biến môi trường. Lần chạy đầu: 11/11 task xanh, 96s.
+  - Ngày 12: `dashboard/app.py` (Streamlit): trang "Bầu trời Việt Nam" (KPI, bản đồ, xếp hạng, xu hướng tháng, heatmap giờ × tháng, PM2.5 vs mưa/gió) và "Phòng điều hành" (độ mới, các run, số dòng qua chặng, tỷ lệ đạt DQ, check trượt).
+  - Ngày 13: `chaos.py` (5 lỗi bật bằng `VIETSKY_CHAOS`), `docs/incidents/01–06`, `docs/runbook.md`; 2 lỗ hổng thật được tìm ra và sửa (schema check đặt sau load; không có rule NULL cấp giá trị); gắn kiểm tra toạ độ vào pipeline; 9 test mới (17 tổng).
+- Khái niệm cần nắm: xem `docs/learning-log.md` mục Ngày 11–14.
+- TODO: chụp ảnh DAG xanh + 2 trang dashboard đưa vào README; tự viết 3 câu CV; trả lời câu tình huống Ngày 8–10; push.
+- Mức tự viết (không AI) hôm nay: __ / 10 (AI viết toàn bộ code Ngày 11–14 theo yêu cầu tăng tốc)

@@ -42,12 +42,12 @@ def check_coordinates(rows: list) -> list:
             errors.append(f"{name} nằm ngoài Việt Nam: ({lat}, {lon})")
     return errors
 
+def validate_provinces(rows: list) -> list:
+    return check_row_counts(rows) + check_unique_names(rows) + check_coordinates(rows)
+
 def main():
     rows = load_provinces("config/provinces.csv")
-    errors = []
-    errors.extend(check_row_counts(rows))
-    errors.extend(check_unique_names(rows))
-    errors.extend(check_coordinates(rows))
+    errors = validate_provinces(rows)
     if errors:
         print("\n".join(errors))
         sys.exit(1)

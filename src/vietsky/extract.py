@@ -5,6 +5,9 @@ import time
 from typing import Dict, Any
 from pathlib import Path
 
+from vietsky import chaos
+from vietsky.config import RAW_DIR
+
 WEATHER_URL = "https://api.open-meteo.com/v1/forecast"
 AIR_QUALITY_URL = "https://air-quality-api.open-meteo.com/v1/air-quality"
 
@@ -20,8 +23,9 @@ def fetch_hourly(lat: float, lon: float, variables:str , start_date: str, end_da
     for attempt in range(1, 5):
         try:
             response = requests.get(url, params=params, timeout=30)
-            if response.status_code in {429, 500, 502, 503, 504}:
-                error = f"HTTP {response.status_code}"
+            status = chaos.http_status(response.status_code)
+            if status in {429, 500, 502, 503, 504}:
+                error = f"HTTP {status}"
             else:
                 response.raise_for_status()
                 return response.json()
@@ -41,7 +45,7 @@ def fetch_air_quality(lat: float, lon: float, start_date: str, end_date: str) ->
     return fetch_hourly(lat, lon, "pm2_5,pm10,us_aqi,nitrogen_dioxide,ozone", start_date, end_date, url=AIR_QUALITY_URL)
 
 def save_raw(data: Dict[str, Any], city: str, run_date: str, source: str) -> Path:
-    file_path = Path(f"data/raw/{source}/date={run_date}/{city}.json")
+    file_path = RAW_DIR / source / f"date={run_date}" / f"{city}.json"
 
     file_path.parent.mkdir(parents=True, exist_ok=True)
 

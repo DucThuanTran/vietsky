@@ -5,8 +5,9 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
-RAW_DIR = Path("data/raw")
-PROVINCES_PATH = Path("config/provinces.csv")
+BASE_DIR = Path(__file__).resolve().parents[2]
+RAW_DIR = BASE_DIR / "data" / "raw"
+PROVINCES_PATH = BASE_DIR / "config" / "provinces.csv"
 DAYS_BACK = 7
 EXPECTED_ROWS = (DAYS_BACK + 1) * 24
 TIMEZONE = "Asia/Ho_Chi_Minh"
@@ -59,8 +60,8 @@ SOURCES = [
 
 def db_conninfo() -> dict:
     return {
-        "host": "localhost",
-        "port": 5433,
+        "host": os.environ.get("POSTGRES_HOST", "localhost"),
+        "port": int(os.environ.get("POSTGRES_PORT", 5433)),
         "dbname": os.environ["POSTGRES_DB"],
         "user": os.environ["POSTGRES_USER"],
         "password": os.environ["POSTGRES_PASSWORD"]

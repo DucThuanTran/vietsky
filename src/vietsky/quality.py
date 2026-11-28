@@ -41,6 +41,20 @@ RULES = [
         "source": "air_quality",
         "sql": f"SELECT COUNT(*) FROM {{table}} WHERE {WINDOW} AND (pm2_5 < 0 OR pm2_5 > 1000)",
     },
+    {   # Nguồn trả toàn NULL cho 1 tỉnh: vẫn đủ dòng, đủ 34 tỉnh, nhưng không có số liệu.
+        "name": "pm25_not_null",
+        "severity": "CRITICAL",
+        "threshold": 0,
+        "source": "air_quality",
+        "sql": f"SELECT COUNT(*) FROM {{table}} WHERE {WINDOW} AND pm2_5 IS NULL",
+    },
+    {
+        "name": "temperature_not_null",
+        "severity": "CRITICAL",
+        "threshold": 0,
+        "source": "weather",
+        "sql": f"SELECT COUNT(*) FROM {{table}} WHERE {WINDOW} AND temperature IS NULL",
+    },
 ]
 
 
@@ -74,7 +88,9 @@ def save_results(conn, run_id, run_date, source_name: str, results: list[dict]) 
         conn.execute(
             "INSERT INTO ops.dq_results"
             " (run_id, run_date, source, check_name, severity, status, failed_rows, threshold)"
-            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"
+            " ON CONFLICT (run_id, source, check_name) DO UPDATE SET"
+            " status = EXCLUDED.status, failed_rows = EXCLUDED.failed_rows, checked_at = now()",
             (run_id, run_date, source_name, r["check_name"], r["severity"], r["status"], r["failed_rows"], r["threshold"]),
         )
 
@@ -98,16 +114,28 @@ def read_json(path: Path) -> dict:
         return json.load(f)
 
 
-def check_raw_schema(source, run_date) -> dict:
+def missing_columns(source, run_date) -> dict[str, list]:
     expected = {"time", *source.columns.keys()}
-    bad_files = 0
+    bad = {}
     for path in raw_files(source, run_date):
-        hourly = read_json(path).get("hourly", {})
-        missing = expected - set(hourly.keys())
+        missing = expected - set(read_json(path).get("hourly", {}).keys())
         if missing:
-            print(f"[raw_schema] {source.name}/{path.name}: thiếu {sorted(missing)}")
-            bad_files += 1
-    return make_result("raw_schema", "CRITICAL", bad_files, 0)
+            bad[path.name] = sorted(missing)
+    return bad
+
+
+def assert_raw_schema(source, run_date) -> None:
+    bad = missing_columns(source, run_date)
+    if bad:
+        name, cols = next(iter(bad.items()))
+        raise ValueError(f"Schema drift: {len(bad)} file raw thiếu cột, ví dụ {name} thiếu {cols}")
+
+
+def check_raw_schema(source, run_date) -> dict:
+    bad = missing_columns(source, run_date)
+    for name, cols in bad.items():
+        print(f"[raw_schema] {source.name}/{name}: thiếu {cols}")
+    return make_result("raw_schema", "CRITICAL", len(bad), 0)
 
 
 STAGING_DAILY_SQL = f"""
@@ -155,7 +183,16 @@ def reconcile_daily(conn, source, run_date) -> dict:
 def run_quality(conn, source, run_date, run_id) -> tuple[int, int]:
     params = check_window(run_date)
     results = [run_rule(conn, r, source.table, params) for r in rules_for(source.name)]
-    results += [check_raw_schema(source, run_date), reconcile_daily(conn, source, run_date)]
+    results.append(check_raw_schema(source, run_date))
+    return finish_checks(conn, source, run_date, run_id, results)
+
+
+def run_reconcile(conn, source, run_date, run_id) -> tuple[int, int]:
+    results = [reconcile_daily(conn, source, run_date)]
+    return finish_checks(conn, source, run_date, run_id, results)
+
+
+def finish_checks(conn, source, run_date, run_id, results: list[dict]) -> tuple[int, int]:
     save_results(conn, run_id, run_date, source.name, results)
     conn.commit()
     critical = [r["check_name"] for r in results

@@ -6,7 +6,9 @@ def new_run_id() -> uuid.UUID:
 def start_stage(conn, run_id, run_date, stage, source) -> None:
     conn.execute(
         "INSERT INTO ops.pipeline_runs (run_id, run_date, stage, source, status) "
-        "VALUES (%s, %s, %s, %s, 'RUNNING')",
+        "VALUES (%s, %s, %s, %s, 'RUNNING') "
+        "ON CONFLICT (run_id, stage, source) DO UPDATE SET status = 'RUNNING', "
+        "started_at = now(), finished_at = NULL, error_message = NULL",
         (run_id, run_date, stage, source),
     )
     conn.commit()
