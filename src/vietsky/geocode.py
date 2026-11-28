@@ -7,7 +7,7 @@ import requests
 logger = logging.getLogger(__name__)
 
 PROVINCES = [
-    # --- Miền Bắc (15) ---
+    # --- North (15) ---
     {"province_code": "01", "name": "Hà Nội",      "search_name": "Hanoi",         "region": "north"},
     {"province_code": "04", "name": "Cao Bằng",    "search_name": "Cao Bang",      "region": "north"},
     {"province_code": "08", "name": "Tuyên Quang", "search_name": "Tuyen Quang",   "region": "north"},
@@ -23,7 +23,7 @@ PROVINCES = [
     {"province_code": "31", "name": "Hải Phòng",   "search_name": "Haiphong",      "region": "north"},
     {"province_code": "33", "name": "Hưng Yên",    "search_name": "Hung Yen",      "region": "north"},
     {"province_code": "37", "name": "Ninh Bình",   "search_name": "Ninh Binh",     "region": "north"},
-    # --- Miền Trung & Tây Nguyên (11) ---
+    # --- Central & Central Highlands (11) ---
     {"province_code": "38", "name": "Thanh Hóa",   "search_name": "Thanh Hoa",     "region": "central"},
     {"province_code": "40", "name": "Nghệ An",     "search_name": "Vinh",          "region": "central"},
     {"province_code": "42", "name": "Hà Tĩnh",     "search_name": "Ha Tinh",       "region": "central"},
@@ -35,7 +35,7 @@ PROVINCES = [
     {"province_code": "56", "name": "Khánh Hòa",   "search_name": "Nha Trang",     "region": "central"},
     {"province_code": "66", "name": "Đắk Lắk",     "search_name": "Buon Ma Thuot", "region": "central"},
     {"province_code": "68", "name": "Lâm Đồng",    "search_name": "Da Lat",        "region": "central"},
-    # --- Miền Nam (8) ---
+    # --- South (8) ---
     {"province_code": "75", "name": "Đồng Nai",    "search_name": "Bien Hoa",         "region": "south"},
     {"province_code": "79", "name": "Hồ Chí Minh", "search_name": "Ho Chi Minh City", "region": "south"},
     {"province_code": "80", "name": "Tây Ninh",    "search_name": "Tan An",           "region": "south"},
@@ -59,7 +59,7 @@ def search_place(name: str) -> list:
         response.raise_for_status()
         data = response.json()
     except requests.RequestException as e:
-        logger.warning("Lỗi gọi API cho %s: %s", name, e)
+        logger.warning("API call failed for %s: %s", name, e)
         return []
     return data.get("results", [])
 
@@ -88,7 +88,7 @@ def main():
             lat = ''
             lon = ''
             note = 'not found'
-            logger.warning("Không tìm thấy %s (search_name=%s)", name, search_name)
+            logger.warning("Not found: %s (search_name=%s)", name, search_name)
         row = {
             "province_code": province["province_code"],
             "name": name,
@@ -109,7 +109,7 @@ def main():
             writer.writerow(row)
 
         missing = sum(1 for row in rows if row["lat"] == "")
-        logger.info("Đã ghi %d tỉnh. Số tỉnh cần sửa tay: %d", len(rows), missing)
+        logger.info("Wrote %d provinces. Provinces needing manual fix: %d", len(rows), missing)
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)

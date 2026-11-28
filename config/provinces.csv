@@ -5,28 +5,28 @@ province_code,name,search_name,region,lat,lon,note
 11,Điện Biên,Dien Bien Phu,north,21.38602,103.02301,
 12,Lai Châu,Lai Chau,north,22.39644,103.45824,
 14,Sơn La,Son La,north,21.3256,103.91882,
-15,Lào Cai,Yen Bai,north,21.72288,104.9113,manual: tọa độ TP Yên Bái cũ (TT tỉnh Lào Cai mới sau sáp nhập 01/7/2025); API không trả PPLC/PPLA cho 'Yen Bai'
+15,Lào Cai,Yen Bai,north,21.72288,104.9113,manual: former Yen Bai city (capital of the new Lao Cai province after the 2025-07-01 merger); API returned no PPLC/PPLA for 'Yen Bai'
 19,Thái Nguyên,Thai Nguyen,north,21.59422,105.84817,
 20,Lạng Sơn,Lang Son,north,21.85264,106.76101,
 22,Quảng Ninh,Ha Long,north,20.95045,107.07336,
-24,Bắc Ninh,Bac Giang,north,21.27307,106.1946,manual: tọa độ TP Bắc Giang cũ (TT tỉnh Bắc Ninh mới sau sáp nhập 01/7/2025); API không trả PPLC/PPLA cho 'Bac Giang'
+24,Bắc Ninh,Bac Giang,north,21.27307,106.1946,manual: former Bac Giang city (capital of the new Bac Ninh province after the 2025-07-01 merger); API returned no PPLC/PPLA for 'Bac Giang'
 25,Phú Thọ,Viet Tri,north,21.32274,105.40198,
 31,Hải Phòng,Haiphong,north,20.86481,106.68345,
 33,Hưng Yên,Hung Yen,north,20.64637,106.05112,
-37,Ninh Bình,Ninh Binh,north,20.25389,105.975,manual: tọa độ TP Ninh Bình cũ (TT tỉnh Ninh Bình sau sáp nhập 01/7/2025); API không trả PPLC/PPLA cho 'Ninh Binh'
+37,Ninh Bình,Ninh Binh,north,20.25389,105.975,manual: former Ninh Binh city (capital of Ninh Binh province after the 2025-07-01 merger); API returned no PPLC/PPLA for 'Ninh Binh'
 38,Thanh Hóa,Thanh Hoa,central,19.8,105.76667,
 40,Nghệ An,Vinh,central,18.67337,105.69232,
 42,Hà Tĩnh,Ha Tinh,central,18.34282,105.90569,
-44,Quảng Trị,Dong Hoi,central,17.48306,106.59972,manual: tọa độ TP Đồng Hới cũ (TT tỉnh Quảng Trị mới sau sáp nhập 01/7/2025); API không trả PPLC/PPLA cho 'Dong Hoi'
+44,Quảng Trị,Dong Hoi,central,17.48306,106.59972,manual: former Dong Hoi city (capital of the new Quang Tri province after the 2025-07-01 merger); API returned no PPLC/PPLA for 'Dong Hoi'
 46,Huế,Hue,central,16.4619,107.59546,
 48,Đà Nẵng,Da Nang,central,16.06778,108.22083,
 51,Quảng Ngãi,Quang Ngai,central,15.12047,108.79232,
-52,Gia Lai,Quy Nhon,central,13.77648,109.22367,manual: tọa độ TP Quy Nhơn cũ (TT tỉnh Gia Lai mới sau sáp nhập 01/7/2025); API không trả PPLC/PPLA cho 'Quy Nhon'
+52,Gia Lai,Quy Nhon,central,13.77648,109.22367,manual: former Quy Nhon city (capital of the new Gia Lai province after the 2025-07-01 merger); API returned no PPLC/PPLA for 'Quy Nhon'
 56,Khánh Hòa,Nha Trang,central,12.24507,109.19432,
 66,Đắk Lắk,Buon Ma Thuot,central,12.66747,108.03775,
 68,Lâm Đồng,Da Lat,central,11.94646,108.44193,
 75,Đồng Nai,Bien Hoa,south,10.94469,106.82432,
-79,Hồ Chí Minh,Ho Chi Minh City,south,10.82302,106.62965,manual: tọa độ TP.HCM theo GeoNames (id 1566083); API không trả PPLC/PPLA cho 'Ho Chi Minh City'
+79,Hồ Chí Minh,Ho Chi Minh City,south,10.82302,106.62965,manual: Ho Chi Minh City coordinates from GeoNames (id 1566083); API returned no PPLC/PPLA for 'Ho Chi Minh City'
 80,Tây Ninh,Tan An,south,10.53589,106.41366,
 82,Đồng Tháp,My Tho,south,10.36004,106.35996,
 86,Vĩnh Long,Vinh Long,south,10.25369,105.9722,

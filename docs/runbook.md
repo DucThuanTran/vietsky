@@ -1,8 +1,8 @@
-# Runbook · Pipeline VietSky lỗi thì kiểm tra theo thứ tự nào
+# Runbook · VietSky pipeline troubleshooting
 
-Nguyên tắc: đi theo dòng chảy dữ liệu, từ nguồn đến đích. Dừng ở tầng đầu tiên có bất thường; đó là nơi khoanh vùng.
+Principle: follow the data flow from source to destination. Stop at the first layer that looks wrong: that is where the problem is.
 
-## 0. Pipeline có chạy không?
+## 0. Did the pipeline run?
 ```sql
 SELECT run_id, MIN(started_at) AS started, source, stage, status, error_message
 FROM ops.pipeline_runs
@@ -10,41 +10,40 @@ WHERE started_at > NOW() - INTERVAL '2 days'
 GROUP BY run_id, source, stage, status, error_message
 ORDER BY started DESC;
 ```
-- Không có dòng nào trong 24 giờ: scheduler (Airflow) chết hoặc DAG bị pause → `docker compose --profile airflow ps`, giao diện Airflow `localhost:8080`.
-- Có dòng `RUNNING` quá 30 phút: task treo hoặc tiến trình bị kill giữa chừng.
-- Lỗi xảy ra **trước** mọi chặng (ví dụ `provinces.csv không hợp lệ`) thì không có dòng trong `pipeline_runs`; xem log task `sync_locations` trên Airflow hoặc stderr.
+- **No rows in the last 24h:** the scheduler (Airflow) is down or the DAG is paused. Check `docker compose --profile airflow ps` and the Airflow UI at `localhost:8080`.
+- **A row stuck in `RUNNING` for more than 30 minutes:** the task is hung, or the process was killed mid-stage.
+- **Errors raised before any stage** (e.g. `Invalid provinces.csv`) leave no row in `pipeline_runs`. Check the `sync_locations` task log in Airflow, or stderr.
 
-## 1. Dữ liệu có đến không? (extract)
-- `stage = 'extract'` FAILED, lỗi `failed after 4 attempts: HTTP 5xx` → API nguồn lỗi; đã retry 4 lần với backoff. Kiểm tra trang trạng thái Open-Meteo, chạy lại sau.
-- Lỗi `HTTP 400 ... out of allowed range` → khoảng ngày vượt cửa sổ của `/forecast` (xem Data profiling trong README).
-- Raw nằm ở `data/raw/<source>/date=<run_date>/`; đếm file phải là 34.
+## 1. Did the data arrive? (extract)
+- **`stage = 'extract'` FAILED with `failed after 4 attempts: HTTP 5xx`:** the source API is down. The call was already retried 4 times with backoff. Check Open-Meteo's status, then re-run later.
+- **`HTTP 400 ... out of allowed range`:** the date range is outside the `/forecast` window (see Data profiling in the README).
+- **Raw files** live in `data/raw/<source>/date=<run_date>/`. There must be 34 files.
 
-## 2. Đến đủ không? Đúng cấu trúc không? (raw)
+## 2. Is it complete and well-formed? (raw)
 ```sql
 SELECT source, check_name, status, failed_rows
 FROM ops.dq_results
 WHERE run_id = '<run_id>' ORDER BY status, check_name;
 ```
-- `raw_schema` FAIL → nguồn đổi tên/xoá cột (schema drift). Mở 1 file JSON, so `hourly` với `source.columns` trong `config.py`.
-- Lỗi `KeyError: 'pm2_5'` ở chặng load cũng là dấu hiệu schema drift.
+- **`raw_schema` FAIL, or load fails with `Schema drift: ... missing [...]`:** the source renamed or removed a field. Compare `hourly` in one JSON file with `source.columns` in `config.py`.
 
-## 3. Xử lý đúng không? (load + quality_check trên staging)
-- `all_provinces` FAIL → thiếu tỉnh; tìm tỉnh thiếu bằng Q12 trong `sql/explore.sql`.
-- `pm25_not_null` / `temperature_not_null` FAIL → nguồn trả toàn NULL cho 1 tỉnh; kiểm tra raw của tỉnh đó.
-- `unique_key` FAIL → upsert/PK bị gỡ; kiểm tra `\d stg_<source>_hourly`.
-- `freshness_24h` FAIL → load không ghi được gì; so `rows_out` của load với extract.
-- `quality_check` FAILED thì `build_mart` **không chạy**: mart vẫn giữ bản cũ, đúng (không công bố dữ liệu lỗi).
+## 3. Was it processed correctly? (load + quality_check on staging)
+- **`all_provinces` FAIL:** a province is missing. Find it with Q12 in `sql/explore.sql`.
+- **`pm25_not_null` / `temperature_not_null` FAIL:** the source returned all NULLs for a province. Inspect that province's raw file.
+- **`unique_key` FAIL:** the upsert or the primary key was removed. Check `\d stg_<source>_hourly`.
+- **`freshness_24h` FAIL:** load wrote nothing. Compare the load stage's `rows_out` with extract's.
+- When `quality_check` FAILS, `build_mart` **does not run**. The mart keeps its last good version, which is the intended behavior: bad data is never published.
 
-## 4. Ghi vào đích đủ không? (build_mart + reconcile)
-- `build_mart` FAILED với `Reconcile failed: staging=X mart=Y` → JOIN với dim làm rơi dòng; tìm `location_id` không có trong `mart.dim_location`.
-- `reconcile_daily` FAIL, log in `day: raw=816 staging=816 mart=0` → mart thiếu ngày đó (build_mart hỏng, mart giữ bản cũ).
-- `raw ≠ staging` → lỗi ở transform/load.
+## 4. Did everything reach the destination? (build_mart + reconcile)
+- **`build_mart` FAILED with `Reconcile failed: staging=X mart=Y`:** the join with a dimension dropped rows. Look for a `location_id` missing from `mart.dim_location`.
+- **`reconcile_daily` FAIL with a log line like `day: raw=816 staging=816 mart=0`:** the mart is missing that day (build_mart failed and the previous mart was kept).
+- **`raw ≠ staging`:** the bug is in transform/load.
 
-## 5. Đúng giờ không?
-- `freshness_24h` và trang "Phòng điều hành" của dashboard (`streamlit run dashboard/app.py`).
-- Lệch múi giờ (lỗi tz_shift) **không** bị check tự động nào bắt: heatmap giờ × tháng bị dịch 7 cột, đỉnh PM2.5 rơi vào 2–6h sáng thay vì 19–23h.
+## 5. Is it on time and correct in time?
+- Check `freshness_24h` and the dashboard's Operations page (`streamlit run dashboard/app.py`).
+- A timezone shift (incident 05) is **not** caught by any automated check. The hour × month heatmap shifts by 7 columns, and the PM2.5 peak moves from 19–23h to 2–6h.
 
-## Sửa xong thì làm gì
-1. Chạy lại cho đúng ngày: `PYTHONPATH=src .venv/bin/python pipelines/run_pipeline.py --date <ngày>` hoặc Clear task trên Airflow. Pipeline idempotent nên chạy lại an toàn.
-2. Kiểm tra lại `ops.dq_results` của run mới: tất cả PASS.
-3. Viết postmortem vào `docs/incidents/` nếu sự cố ảnh hưởng người dùng dashboard.
+## After the fix
+1. Re-run for the affected date: `PYTHONPATH=src .venv/bin/python pipelines/run_pipeline.py --date <date>`, or Clear the task in Airflow. The pipeline is idempotent, so re-runs are safe.
+2. Confirm every check in `ops.dq_results` for the new run is PASS.
+3. Write a postmortem in `docs/incidents/` if dashboard users were affected.

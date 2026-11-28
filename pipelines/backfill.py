@@ -3,11 +3,11 @@ import datetime
 import sys
 import time
 
-from vietsky.config    import SOURCES, PROVINCES_PATH
-from vietsky.validate  import load_provinces
+from vietsky.config    import SOURCES
 from vietsky.extract   import fetch_hourly, save_raw
 from vietsky.transform import to_rows
-from vietsky.load      import get_conn, load_rows, load_locations
+from vietsky.load      import get_conn, load_rows
+from vietsky.stages    import read_provinces, sync_locations
 from vietsky.run_log   import new_run_id, run_stage
 
 
@@ -49,13 +49,12 @@ def backfill_source(conn, source, provinces, start, end) -> tuple[int, int]:
 def main():
     args = parse_args()
     run_id = new_run_id()
-    provinces = load_provinces(PROVINCES_PATH)
+    provinces = read_provinces()
     sources = [s for s in SOURCES if args.source in (None, s.name)]
     print(f"run_id={run_id} backfill {args.start} -> {args.end}", flush=True)
     ok = True
     with get_conn() as conn:
-        load_locations(conn, provinces)
-        conn.commit()
+        sync_locations(conn, provinces)
         for source in sources:
             started = time.time()
             ok &= run_stage(conn, run_id, datetime.date.today(), "load", source,

@@ -1,6 +1,6 @@
 CREATE SCHEMA IF NOT EXISTS mart;
 
--- Grain: 1 dòng = 1 tỉnh. SCD1: đổi tên thì ghi đè
+-- Grain: 1 row = 1 province. SCD1: attribute changes overwrite in place
 CREATE TABLE IF NOT EXISTS mart.dim_location (
     location_key  serial       PRIMARY KEY,
     location_id   TEXT        NOT NULL UNIQUE,
@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS mart.dim_location (
     lon           NUMERIC(8,5)
 );
 
--- Grain: 1 dòng = 1 ngày theo giờ VN
+-- Grain: 1 row = 1 calendar day in Vietnam time
 CREATE TABLE IF NOT EXISTS mart.dim_date (
     date_key     INTEGER  PRIMARY KEY,
     full_date    DATE     NOT NULL UNIQUE,
@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS mart.dim_date (
     season       TEXT     NOT NULL CHECK (season IN ('dry', 'wet'))
 );
 
--- Grain: 1 dòng = 1 tỉnh × 1 giờ (location_key, ts_utc)
+-- Grain: 1 row = 1 province × 1 hour (location_key, ts_utc)
 CREATE TABLE IF NOT EXISTS mart.fact_air_quality_hourly (
     location_key     INTEGER NOT NULL REFERENCES mart.dim_location(location_key),
     date_key         INTEGER NOT NULL REFERENCES mart.dim_date(date_key),
@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS mart.fact_air_quality_hourly (
     PRIMARY KEY (location_key, ts_utc)
 );
 
--- Grain: 1 dòng = 1 tỉnh × 1 giờ (location_key, ts_utc)
+-- Grain: 1 row = 1 province × 1 hour (location_key, ts_utc)
 CREATE TABLE IF NOT EXISTS mart.fact_weather_hourly (
     location_key     INTEGER NOT NULL REFERENCES mart.dim_location(location_key),
     date_key         INTEGER NOT NULL REFERENCES mart.dim_date(date_key),

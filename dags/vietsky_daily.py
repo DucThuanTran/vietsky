@@ -42,7 +42,7 @@ def run_pipeline_stage(stage: str, source_name: str) -> None:
     with get_conn() as conn:
         func, *args = stage_call(stage, conn, source, run_date, run_id)
         if not run_stage(conn, run_id, run_date, stage, source, func, *args):
-            raise RuntimeError(f"{stage}/{source_name} FAILED, xem ops.pipeline_runs run_id={run_id}")
+            raise RuntimeError(f"{stage}/{source_name} FAILED, see ops.pipeline_runs run_id={run_id}")
 
 
 @task

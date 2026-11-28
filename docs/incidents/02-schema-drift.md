@@ -1,32 +1,32 @@
-# Sự cố 02 · Nguồn đổi tên trường `pm2_5` → `pm25` (schema drift)
+# Incident 02 · Source renames field `pm2_5` → `pm25` (schema drift)
 
-**Diễn tập ngày:** 28/11/2026 · `VIETSKY_CHAOS=rename_field run_pipeline.py --date 2026-11-28 --source air_quality` · run `2ebd1b4d`
-**Mức độ:** cao (toàn bộ nguồn air_quality dừng) · **MTTD:** ~75 giây (hết extract + load)
+**Drill date:** 2026-11-28 · `VIETSKY_CHAOS=rename_field run_pipeline.py --date 2026-11-28 --source air_quality` · run `2ebd1b4d`
+**Severity:** high (the whole air_quality source stops) · **Time to detect:** ~75 seconds (end of extract + load)
 
-## Triệu chứng
-- `extract` SUCCESS (34 tỉnh, 6.528 giờ): API vẫn trả 200, JSON vẫn đủ dòng.
-- `load` FAILED với `error_message = 'pm2_5'`: một `KeyError` không nói gì về nguyên nhân.
+## Symptoms
+- `extract` SUCCESS (34 provinces, 6,528 hours): the API still returns 200 and the JSON has every row.
+- `load` FAILED with `error_message = 'pm2_5'`: a bare `KeyError` that says nothing about the cause.
 
-## Phát hiện lúc nào, bằng gì
-- Lần diễn tập đầu: chỉ có thông báo `'pm2_5'` trong `ops.pipeline_runs`. Phải mở `data/raw/air_quality/date=2026-11-28/01.json` mới thấy `hourly` có `pm25` thay vì `pm2_5`.
-- Check `raw_schema` (Ngày 10) **không kịp chạy**: nó nằm trong `quality_check`, đứng sau `load`, mà `load` đã crash trước.
+## Detection
+- **First drill:** the only signal was `'pm2_5'` in `ops.pipeline_runs`. Opening `data/raw/air_quality/date=2026-11-28/01.json` showed `hourly` contained `pm25` instead of `pm2_5`.
+- **Why `raw_schema` did not help:** the existing check **never got to run**. It lives in `quality_check`, after `load`, and `load` had already crashed.
 
-## Khoanh vùng
-extract đạt, load hỏng ngay ở `transform.to_rows` → lỗi nằm giữa raw và staging: cấu trúc raw không khớp hợp đồng (data contract) trong `config.py`.
+## Scope
+Extract passed and load broke inside `transform.to_rows`, so the problem sits between raw and staging: the raw structure no longer matches the data contract in `config.py`.
 
-## Nguyên nhân gốc (5 Whys)
-1. Vì sao load hỏng? `to_rows` đọc `hourly['pm2_5']` không tồn tại.
-2. Vì sao không tồn tại? Nguồn đổi tên trường (giả lập `chaos.break_payload`).
-3. Vì sao thông báo khó hiểu? Không có kiểm tra cấu trúc **trước khi** dùng dữ liệu; lỗi lộ ra ở nơi sâu nhất.
-4. Vì sao `raw_schema` có mà không giúp được? Đặt sai vị trí: kiểm tra chạy sau bước mà nó cần bảo vệ.
-5. Vì sao mart không bị ảnh hưởng? Load dừng trước khi ghi; build_mart không chạy; dữ liệu cũ còn nguyên.
+## Root cause (5 Whys)
+1. Why did load fail? `to_rows` read `hourly['pm2_5']`, which does not exist.
+2. Why does it not exist? The source renamed the field (simulated by `chaos.break_payload`).
+3. Why was the error message unhelpful? Nothing validated the structure **before** using it, so the error surfaced at the deepest point.
+4. Why didn't the existing `raw_schema` check help? It was in the wrong place: it ran after the step it was meant to protect.
+5. Why was the mart unaffected? Load stopped before writing, `build_mart` never ran, and the previous data stayed intact.
 
-## Cách sửa
-- Ngắn hạn: khi nguồn thật đổi tên, cập nhật `columns` trong `config.py` (tên API → tên DB) rồi chạy lại.
-- Đã sửa trong code: `run_load` gọi `assert_raw_schema` đầu tiên. Thông báo giờ là:
-  `Schema drift: 34 file raw thiếu cột, ví dụ 01.json thiếu ['pm2_5']`.
+## Fix
+- **Short term:** when the real source renames a field, update `columns` in `config.py` (API name → DB name) and re-run.
+- **Done in code:** `run_load` now calls `assert_raw_schema` first. The error now reads:
+  `Schema drift: 34 raw files missing columns, e.g. 01.json missing ['pm2_5']`.
 
-## Phòng tránh
-- Validate cấu trúc ở **ranh giới** dữ liệu vào hệ thống (fail fast), không đợi đến bước dùng.
-- Raw giữ nguyên bản lỗi → sau khi sửa mapping có thể load lại từ raw, không cần gọi lại API.
-- Schema drift "mềm" (đổi đơn vị, đổi ý nghĩa) không bị check này bắt; cần so phân phối giá trị với lịch sử.
+## Prevention
+- Validate structure at the **boundary** where data enters the system (fail fast), not where it is used.
+- Raw keeps the broken payload, so after fixing the mapping the data can be reloaded from raw without calling the API again.
+- "Soft" schema drift (changed units or meaning) is not caught by this check. That needs comparing value distributions against history.

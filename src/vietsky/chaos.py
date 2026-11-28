@@ -1,4 +1,4 @@
-"""Gây lỗi có chủ đích để diễn tập sự cố. Bật bằng biến môi trường, ví dụ:
+"""Deliberate fault injection for incident drills. Enable via environment variable, e.g.:
 VIETSKY_CHAOS=api_500,null_province python pipelines/run_pipeline.py --source weather
 """
 import datetime

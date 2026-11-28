@@ -1,4 +1,4 @@
--- (A) Dim tỉnh: upsert SCD1, location_key giữ nguyên qua các lần chạy
+-- (A) Province dim: SCD1 upsert, location_key stays stable across runs
 INSERT INTO MART.DIM_LOCATION (LOCATION_ID, NAME, REGION, LAT, LON)
 SELECT LOCATION_ID, NAME, REGION, LAT, LON
 FROM PUBLIC.DIM_LOCATION
@@ -7,7 +7,7 @@ ON CONFLICT (LOCATION_ID) DO UPDATE SET NAME   = EXCLUDED.NAME,
                                         LAT    = EXCLUDED.LAT,
                                         LON    = EXCLUDED.LON;
 
--- (B) Dim ngày: mỗi ngày 1 dòng, phủ khoảng ngày của CẢ HAI bảng staging (theo giờ VN)
+-- (B) Date dim: 1 row per day, covering the date range of BOTH staging tables (Vietnam time)
 WITH all_ts AS (
     SELECT ts_utc FROM stg_weather_hourly
     UNION ALL

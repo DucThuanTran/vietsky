@@ -63,20 +63,20 @@ LOCATION_NAMES = "SELECT name FROM mart.dim_location ORDER BY name"
 
 
 def sky_page() -> None:
-    st.title("🌏 Bầu trời Việt Nam")
-    st.caption("PM2.5 (µg/m³) của 34 tỉnh thành, dữ liệu theo giờ từ Open-Meteo.")
+    st.title("🌏 Vietnam Sky")
+    st.caption("Hourly PM2.5 (µg/m³) for 34 provinces of Vietnam, from Open-Meteo.")
 
     ranking = query(PROVINCE_PM25_30D)
     k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Số tỉnh", len(ranking))
-    k2.metric("PM2.5 TB 30 ngày", f"{ranking['pm25'].mean():.1f}")
+    k1.metric("Provinces", len(ranking))
+    k2.metric("30-day avg PM2.5", f"{ranking['pm25'].mean():.1f}")
     worst, best = ranking.iloc[0], ranking.iloc[-1]
-    k3.metric(f"Ô nhiễm nhất · {worst['pm25']} µg/m³", worst["name"])
-    k4.metric(f"Sạch nhất · {best['pm25']} µg/m³", best["name"])
+    k3.metric(f"Most polluted · {worst['pm25']} µg/m³", worst["name"])
+    k4.metric(f"Cleanest · {best['pm25']} µg/m³", best["name"])
 
     left, right = st.columns([3, 2])
     with left:
-        st.subheader("Bản đồ PM2.5 trung bình 30 ngày")
+        st.subheader("30-day average PM2.5 map")
         fig = px.scatter_map(
             ranking, lat="lat", lon="lon", color="pm25", size="pm25", hover_name="name",
             color_continuous_scale="YlOrRd", size_max=22, zoom=4.4,
@@ -84,30 +84,30 @@ def sky_page() -> None:
         )
         st.plotly_chart(fig, width="stretch")
     with right:
-        st.subheader("Xếp hạng tỉnh (30 ngày)")
+        st.subheader("Province ranking (30 days)")
         st.dataframe(ranking[["name", "region", "pm25", "pm25_max"]], height=620, hide_index=True)
 
     names = query(LOCATION_NAMES)["name"].tolist()
-    picked = st.multiselect("Chọn tỉnh để so sánh xu hướng", names, default=["Hà Nội", "Hồ Chí Minh"])
+    picked = st.multiselect("Provinces to compare", names, default=["Hà Nội", "Hồ Chí Minh"])
     if picked:
         trend = query(MONTHLY_PM25, (picked,))
-        st.subheader("Xu hướng PM2.5 theo tháng")
+        st.subheader("Monthly PM2.5 trend")
         st.plotly_chart(px.line(trend, x="month_start", y="pm25", color="name", markers=True,
                                 color_discrete_sequence=px.colors.qualitative.Set1), width="stretch")
 
-    province = st.selectbox("Tỉnh cho heatmap và phân tán", names, index=names.index("Hà Nội"))
+    province = st.selectbox("Province for heatmap and scatter", names, index=names.index("Hà Nội"))
     left, right = st.columns(2)
     with left:
-        st.subheader(f"PM2.5 theo giờ × tháng · {province}")
+        st.subheader(f"PM2.5 by hour × month · {province}")
         hm = query(HOUR_MONTH_PM25, (province,)).pivot(index="month", columns="hour_vn", values="pm25")
         fig = px.imshow(hm, color_continuous_scale="YlOrRd", aspect="auto",
-                        labels={"x": "Giờ VN", "y": "Tháng", "color": "PM2.5"})
+                        labels={"x": "Hour (Vietnam time)", "y": "Month", "color": "PM2.5"})
         st.plotly_chart(fig, width="stretch")
     with right:
         daily = query(DAILY_WEATHER_PM25, (province,))
-        axis = st.radio("Yếu tố thời tiết", ["rain_mm", "wind_kmh"], horizontal=True,
-                        format_func={"rain_mm": "Tổng mưa trong ngày (mm)", "wind_kmh": "Gió TB (km/h)"}.get)
-        st.subheader(f"PM2.5 theo ngày vs thời tiết · {province}")
+        axis = st.radio("Weather factor", ["rain_mm", "wind_kmh"], horizontal=True,
+                        format_func={"rain_mm": "Daily rainfall (mm)", "wind_kmh": "Avg wind speed (km/h)"}.get)
+        st.subheader(f"Daily PM2.5 vs weather · {province}")
         fig = px.scatter(daily, x=axis, y="pm25", opacity=0.4)
         st.plotly_chart(fig, width="stretch")
 
@@ -158,50 +158,50 @@ STAGE_ORDER = ["extract", "load", "quality_check", "build_mart", "reconcile"]
 
 
 def ops_page() -> None:
-    st.title("🛠️ Phòng điều hành")
-    st.caption("Pipeline có chạy không, hỏng ở chặng nào, dữ liệu có đủ, có mới không.")
+    st.title("🛠️ Operations")
+    st.caption("Did the pipeline run, which stage failed, is the data complete and fresh?")
 
     fresh = query(FRESHNESS)
     now = pd.Timestamp.now(tz="UTC")
     cols = st.columns(len(fresh) + 1)
     for col, row in zip(cols, fresh.itertuples()):
         hours = (now - row.last_loaded).total_seconds() / 3600
-        status = "✅ trong SLA 24h" if hours <= 24 else "🔴 quá SLA 24h"
-        col.metric(f"Độ mới · {row.source} · {status}", f"{hours:.1f} giờ trước")
+        status = "✅ within 24h SLA" if hours <= 24 else "🔴 breached 24h SLA"
+        col.metric(f"Freshness · {row.source} · {status}", f"{hours:.1f} h ago")
 
     runs = query(RECENT_RUNS)
-    cols[-1].metric(f"Run gần nhất · {runs.iloc[0]['seconds'] or 0} giây", runs.iloc[0]["status"])
+    cols[-1].metric(f"Latest run · {runs.iloc[0]['seconds'] or 0}s", runs.iloc[0]["status"])
 
-    st.subheader("Các lần chạy gần nhất")
+    st.subheader("Recent runs")
     st.dataframe(runs, hide_index=True)
 
-    run_id = st.selectbox("Chọn run để xem chi tiết", runs["run_id"])
+    run_id = st.selectbox("Run details", runs["run_id"])
     stages = query(STAGE_ROWS, (run_id,))
     left, right = st.columns(2)
     with left:
-        st.subheader("Số dòng qua từng chặng")
+        st.subheader("Rows per stage")
         funnel = stages[stages["stage"].isin(["extract", "load"])].copy()
         funnel["stage"] = pd.Categorical(funnel["stage"], STAGE_ORDER, ordered=True)
         fig = px.bar(funnel.sort_values("stage"), x="stage", y="rows_out", color="source",
                      barmode="group", text="rows_out")
         st.plotly_chart(fig, width="stretch")
     with right:
-        st.subheader("Trạng thái từng chặng")
+        st.subheader("Stage status")
         st.dataframe(stages, hide_index=True)
 
-    st.subheader("Tỷ lệ đạt kiểm tra chất lượng theo ngày")
+    st.subheader("Data quality pass rate by day")
     dq = query(DQ_DAILY)
     if dq.empty:
-        st.info("Chưa có kết quả kiểm tra.")
+        st.info("No quality results yet.")
     else:
         fig = px.bar(dq, x="run_date", y="pass_rate", color="source", barmode="group", range_y=[0, 105])
         st.plotly_chart(fig, width="stretch")
 
-    st.subheader("Các check trượt gần nhất")
+    st.subheader("Recent failed checks")
     st.dataframe(query(DQ_FAILS), hide_index=True)
 
 
 st.navigation([
-    st.Page(sky_page, title="Bầu trời Việt Nam", icon="🌏", default=True),
-    st.Page(ops_page, title="Phòng điều hành", icon="🛠️"),
+    st.Page(sky_page, title="Vietnam Sky", icon="🌏", default=True),
+    st.Page(ops_page, title="Operations", icon="🛠️"),
 ]).run()

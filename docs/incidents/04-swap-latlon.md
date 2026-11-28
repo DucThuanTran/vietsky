@@ -1,32 +1,32 @@
-# Sự cố 04 · Đảo lat/lon của 3 tỉnh trong dữ liệu tham chiếu
+# Incident 04 · Lat/lon swapped for 3 provinces in reference data
 
-**Diễn tập ngày:** 28/11/2026 · `VIETSKY_CHAOS=swap_latlon run_pipeline.py --date 2026-11-28 --source weather`
-**Mức độ:** cao nếu lọt (lấy nhầm dữ liệu của nơi khác, bản đồ sai) · **MTTD:** < 1 giây
+**Drill date:** 2026-11-28 · `VIETSKY_CHAOS=swap_latlon run_pipeline.py --date 2026-11-28 --source weather`
+**Severity:** high if it slips through (data fetched for the wrong place, wrong map) · **Time to detect:** < 1 second
 
-## Triệu chứng
-Pipeline dừng ngay khi khởi động:
+## Symptoms
+The pipeline stops immediately on startup:
 ```
-ValueError: provinces.csv không hợp lệ: Hà Nội nằm ngoài Việt Nam: (105.84117, 21.0245);
-Cao Bằng nằm ngoài Việt Nam: (106.25786, 22.66568); Tuyên Quang nằm ngoài Việt Nam: (105.21424, 21.82356)
+ValueError: Invalid provinces.csv: Hà Nội is outside Vietnam: (105.84117, 21.0245);
+Cao Bằng is outside Vietnam: (106.25786, 22.66568); Tuyên Quang is outside Vietnam: (105.21424, 21.82356)
 ```
 
-## Phát hiện lúc nào, bằng gì
-Bằng kiểm tra toạ độ (`validate.check_coordinates`: lat 8–24, lon 102–110) trong `sync_locations`, chạy **trước** mọi chặng.
+## Detection
+The coordinate check (`validate.check_coordinates`: lat 8–24, lon 102–110) inside `sync_locations` caught it. That step runs **before** every stage.
 
-## Khoanh vùng
-Dữ liệu tham chiếu (`config/provinces.csv` → `dim_location`). Không có gì được ghi: không raw, không staging, `dim_location` giữ toạ độ đúng.
+## Scope
+The failure is in the reference data (`config/provinces.csv` → `dim_location`). Nothing was written: no raw files, no staging rows, and `dim_location` kept the correct coordinates.
 
-## Nguyên nhân gốc (5 Whys)
-1. Vì sao pipeline dừng? Toạ độ 3 tỉnh nằm ngoài Việt Nam.
-2. Vì sao toạ độ sai? Cột lat và lon bị đổi chỗ (giả lập `chaos.swap_latlon`; ngoài đời: người sửa CSV dán nhầm cột).
-3. Vì sao lại nguy hiểm? Nếu lọt: lat 105 không tồn tại nên API trả 400; nếu cả 2 toạ độ vẫn hợp lệ (ví dụ đảo nhầm giữa 2 tỉnh) thì API **trả dữ liệu của nơi khác** mà không báo lỗi gì.
-4. Vì sao trước đây có thể lọt? Hàm kiểm tra có từ Ngày 2 nhưng pipeline **không gọi** nó; chỉ chạy tay bằng `python validate.py`.
-5. Vì sao giờ chặn được? Ngày 13 gắn `validate_provinces` vào `sync_locations` (cả `run_pipeline.py` và DAG).
+## Root cause (5 Whys)
+1. Why did the pipeline stop? Three provinces had coordinates outside Vietnam.
+2. Why were the coordinates wrong? The lat and lon columns were swapped (simulated by `chaos.swap_latlon`; in real life, someone pasting columns in the wrong order while editing the CSV).
+3. Why is this dangerous? If it slips through, lat 105 does not exist and the API returns 400. Worse, if both swapped values are still valid coordinates (e.g. two provinces mixed up), the API **returns data for another place** with no error at all.
+4. Why could it slip through before? The validator existed from the start, but the pipeline **never called it**. It only ran manually via `python validate.py`.
+5. Why is it blocked now? After this drill, `validate_provinces` was wired into `sync_locations`, in both `run_pipeline.py` and the DAG.
 
-## Cách sửa
-Sửa lại `config/provinces.csv`, chạy lại pipeline.
+## Fix
+Correct `config/provinces.csv`, then re-run the pipeline.
 
-## Phòng tránh
-- Dữ liệu tham chiếu cũng phải qua kiểm tra như dữ liệu chính (data contract cho file cấu hình).
-- Điểm yếu còn lại: lỗi xảy ra **trước** `run_stage` nên không có dòng nào trong `ops.pipeline_runs`; phải xem log task `sync_locations` trên Airflow. Hướng sửa: ghi log cho cả bước chuẩn bị.
-- Kiểm tra trực quan: bản đồ trên dashboard (tỉnh lệch sẽ rơi ra biển hoặc ra khỏi khung).
+## Prevention
+- Reference data needs the same checks as the main data (a data contract for config files).
+- **Remaining gap:** the error is raised **before** `run_stage`, so no row is written to `ops.pipeline_runs`. You have to read the `sync_locations` task log in Airflow. A follow-up would log the setup step as well.
+- **Visual check:** the dashboard map. A misplaced province lands in the sea or off the map.

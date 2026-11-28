@@ -1,42 +1,42 @@
-# Sự cố 05 · Giờ địa phương bị gắn nhãn UTC (lệch 7 tiếng)
+# Incident 05 · Vietnam local time labelled as UTC (7-hour shift)
 
-**Hình thức:** diễn tập trên giấy (tabletop) + unit test `tests/test_chaos.py::test_tz_shift_moves_time_7_hours_later`.
-Không chạy trên database thật, vì lỗi này **ghi đè dữ liệu đúng** bằng dữ liệu lệch giờ và không có check nào dừng pipeline lại (xem phân tích bên dưới).
-**Mức độ:** rất cao (dữ liệu sai âm thầm) · **MTTD dự kiến:** chỉ khi có người nhìn heatmap
+**Format:** tabletop exercise + unit test `tests/test_chaos.py::test_tz_shift_moves_time_7_hours_later`.
+It was not run against the real database, because this fault **overwrites correct data** with time-shifted data and no check stops the pipeline (see the analysis below).
+**Severity:** very high (silently wrong data) · **Expected time to detect:** only when someone looks at the heatmap
 
-## Kịch bản
-`VIETSKY_CHAOS=tz_shift`: `transform` gắn `tzinfo=UTC` cho chuỗi giờ VN `2026-11-28T08:00`, đúng ra phải là `+07:00`. Mỗi dòng bị dời **muộn hơn 7 tiếng**.
+## Scenario
+With `VIETSKY_CHAOS=tz_shift`, `transform` attaches `tzinfo=UTC` to the Vietnam-time string `2026-11-28T08:00`, when the correct offset is `+07:00`. Every row moves **7 hours later**.
 
-## Điều gì xảy ra với dữ liệu
-- Khung đúng: 21/11 00:00 → 28/11 23:00 giờ VN. Khung bị lệch: 21/11 07:00 → 29/11 06:00.
-- Upsert theo `(location_id, ts_utc)`: các giờ trùng khoá bị **ghi đè bằng giá trị của 7 tiếng trước**; thêm 7 giờ "tương lai" ngày 29/11 cho mỗi tỉnh.
+## What happens to the data
+- Correct window: 2026-11-21 00:00 → 2026-11-28 23:00 Vietnam time. Shifted window: 2026-11-21 07:00 → 2026-11-29 06:00.
+- The upsert on `(location_id, ts_utc)` **overwrites** every overlapping hour with the value from 7 hours earlier, and adds 7 "future" hours on 2026-11-29 for each province.
 
-## Check nào bắt được?
-| Check | Kết quả | Vì sao |
+## Which checks catch it?
+| Check | Result | Why |
 |---|---|---|
-| `not_null_key`, `unique_key`, `all_provinces` | PASS | Khoá vẫn đủ, không trùng, đủ 34 tỉnh |
-| `freshness_24h` | PASS | `loaded_at` vẫn mới |
-| `pm25_range`, `*_not_null` | PASS | Giá trị vẫn hợp lệ, chỉ sai giờ |
-| `reconcile_daily` | PASS | Trong khung 8 ngày, mỗi ngày vẫn 816 dòng (giờ cũ bị ghi đè, không mất) |
+| `not_null_key`, `unique_key`, `all_provinces` | PASS | Keys are complete, unique, and all 34 provinces are present |
+| `freshness_24h` | PASS | `loaded_at` is still recent |
+| `pm25_range`, `*_not_null` | PASS | Values are valid, only the hours are wrong |
+| `reconcile_daily` | PASS | Inside the 8-day window every day still has 816 rows (old hours are overwritten, not lost) |
 
-→ **Không check nào bắt được.** Đây là lỗi khó phát hiện nhất trong 6 kịch bản.
+→ **No check catches it.** This is the hardest of the 6 scenarios to detect.
 
-## Phát hiện bằng gì
-- Heatmap giờ × tháng trên dashboard: đỉnh PM2.5 buổi tối (19–23h) dời sang 2–6h sáng; nhiệt độ cao nhất rơi vào 19–21h thay vì 13–15h.
-- Query: giờ nóng nhất trong ngày trung bình của TP.HCM ≠ 13–15h.
+## Detection
+- **Dashboard hour × month heatmap:** the evening PM2.5 peak (19–23h) moves to 2–6h, and the daily temperature peak lands at 19–21h instead of 13–15h.
+- **A query:** the average hottest hour of the day in Ho Chi Minh City is no longer 13–15h.
 
-## Nguyên nhân gốc (5 Whys)
-1. Vì sao heatmap lệch? `ts_utc` muộn hơn thật 7 giờ.
-2. Vì sao? Transform gắn sai múi giờ.
-3. Vì sao không bị chặn? Check hiện tại kiểm tra *có đủ không*, *có hợp lệ không*, không kiểm tra *có hợp lý theo vật lý không*.
-4. Vì sao dữ liệu đúng bị mất? Upsert ghi đè; nhưng raw vẫn còn nguyên nên dựng lại được.
-5. Vì sao unit test cũ không bắt? `test_transform.py` có test múi giờ; lỗi chỉ xuất hiện khi ai đó sửa code transform, nên test là lớp bảo vệ chính.
+## Root cause (5 Whys)
+1. Why is the heatmap shifted? `ts_utc` is 7 hours later than reality.
+2. Why? Transform attached the wrong timezone.
+3. Why wasn't it blocked? Current checks test *completeness* and *validity*, not *physical plausibility*.
+4. Why was correct data lost? The upsert overwrote it. Raw is still intact, so it can be rebuilt.
+5. Why would existing unit tests help? `test_transform.py` already tests the timezone handling. This bug only appears when someone changes the transform code, so tests are the main line of defense.
 
-## Cách sửa
-Sửa transform, rồi load lại từ raw cho các ngày bị ảnh hưởng (`backfill.py` hoặc chạy lại từng ngày), xoá các dòng tương lai thừa:
-`DELETE FROM stg_<source>_hourly WHERE ts_utc >= '<cuối khung đúng>' AND loaded_at >= '<giờ chạy lỗi>'`.
+## Fix
+Fix the transform, reload the affected days from raw (`backfill.py`, or re-run each day), and delete the extra future rows:
+`DELETE FROM stg_<source>_hourly WHERE ts_utc >= '<end of the correct window>' AND loaded_at >= '<time of the bad run>'`.
 
-## Phòng tránh
-- Unit test cho transform (đã có) phải chạy trong CI trước khi deploy.
-- Thêm check "hợp lý": giờ có nhiệt độ cao nhất trung bình trong ngày phải nằm trong 11–16h giờ VN (anomaly check theo lịch sử).
-- Check "không có dòng ngoài khung extract" (`ts_utc >= end` được ghi ở run này) dạng WARNING.
+## Prevention
+- Run the transform unit tests in CI before every deploy.
+- Add a plausibility check: the average hottest hour of the day must fall within 11–16h Vietnam time (anomaly check against history).
+- Add a WARNING-level check for rows outside the extract window written by the current run (`ts_utc >= end`).

@@ -47,6 +47,6 @@ def read_provinces() -> list[dict]:
 def sync_locations(conn, provinces: list[dict]) -> None:
     errors = validate_provinces(provinces)
     if errors:
-        raise ValueError("provinces.csv không hợp lệ: " + "; ".join(errors))
+        raise ValueError("Invalid provinces.csv: " + "; ".join(errors))
     load_locations(conn, provinces)
     conn.commit()

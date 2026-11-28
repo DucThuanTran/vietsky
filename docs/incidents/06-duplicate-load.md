@@ -1,14 +1,14 @@
-# Sự cố 06 · Chạy pipeline 2 lần, tắt upsert (dòng trùng)
+# Incident 06 · Double run with upsert disabled (duplicate rows)
 
-**Hình thức:** phân tích thiết kế, không cần gây lỗi: hệ thống **chặn được ngay từ cấu trúc bảng**.
+**Format:** design analysis. No fault needs to be injected: the system blocks this **through its table structure**.
 
-## Kịch bản
-Ai đó đổi `ON CONFLICT ... DO UPDATE` thành `INSERT` thường rồi chạy pipeline 2 lần cho cùng ngày.
+## Scenario
+Someone replaces `ON CONFLICT ... DO UPDATE` with a plain `INSERT` and runs the pipeline twice for the same date.
 
-## Điều gì xảy ra
-- Staging có `PRIMARY KEY (location_id, ts_utc)` → lần chạy thứ 2 lỗi `duplicate key value violates unique constraint`, chặng `load` FAILED, transaction rollback, không dòng nào bị trùng.
-- Nếu PK cũng bị gỡ: `unique_key` (`COUNT(*) - COUNT(DISTINCT (location_id, ts_utc))`) trả 6.528 → `quality_check` FAILED → `build_mart` không chạy → dashboard không bị `SUM` gấp đôi.
-- Mart: fact có PK `(location_key, ts_utc)` và reconcile staging = mart là lớp thứ ba.
+## What happens
+- Staging has `PRIMARY KEY (location_id, ts_utc)`, so the second run fails with `duplicate key value violates unique constraint`. The `load` stage FAILS, the transaction rolls back, and no duplicate is written.
+- If the PK is removed too, `unique_key` (`COUNT(*) - COUNT(DISTINCT (location_id, ts_utc))`) returns 6,528. `quality_check` FAILS, `build_mart` does not run, and the dashboard never shows doubled `SUM`s.
+- In the mart, the fact PK `(location_key, ts_utc)` and the staging = mart reconciliation form a third layer.
 
-## Bài học
-Phòng thủ nhiều lớp (defense in depth): ràng buộc DB → quality gate → reconcile. Mỗi lớp bắt được lỗi mà lớp trước để lọt.
+## Lesson
+Defense in depth: database constraints → quality gate → reconciliation. Each layer catches what the previous one lets through.

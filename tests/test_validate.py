@@ -12,4 +12,4 @@ def test_coordinates_outside():
 
 def test_coordinates_not_number():
     errors = check_coordinates([{"name": "X", "lat": "abc", "lon": "105.85"}])
-    assert "không phải số" in errors[0]
+    assert "Non-numeric" in errors[0]

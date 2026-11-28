@@ -5,3 +5,6 @@ data/
 .DS_Store
 logs/
 __pycache__/
+.claude/
+vietsky-ke-hoach-14-ngay.md
+docs/learning-log.md

@@ -10,38 +10,38 @@ VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 WINDOW = "ts_utc >= %(start)s AND ts_utc < %(end)s"
 
 RULES = [
-    {   # Có dòng nào mất khoá không? Mất khoá thì không JOIN được sang dim, dòng sẽ rơi khỏi mart.
+    {   # Rows missing a key cannot join to the dims and silently drop out of the mart.
         "name": "not_null_key",
         "severity": "CRITICAL",
         "threshold": 0,
         "sql": f"SELECT COUNT(*) FROM {{table}} WHERE {WINDOW} AND (location_id IS NULL OR ts_utc IS NULL)",
     },
-    {   # Có tỉnh-giờ nào bị ghi 2 lần không? Trùng dòng thì AVG lệch, SUM gấp đôi.
+    {   # Duplicate province-hours skew AVG and double SUM.
         "name": "unique_key",
         "severity": "CRITICAL",
         "threshold": 0,
         "sql": f"SELECT COUNT(*) - COUNT(DISTINCT (location_id, ts_utc)) FROM {{table}} WHERE {WINDOW}",
     },
-    {   # Có đủ 34 tỉnh trong khung này không?
+    {   # All 34 provinces present in the window?
         "name": "all_provinces",
         "severity": "CRITICAL",
         "threshold": 0,
         "sql": f"SELECT 34 - COUNT(DISTINCT location_id) FROM {{table}} WHERE {WINDOW}",
     },
-    {   # Lần nạp gần nhất có quá 24 giờ trước không? (1 = quá hạn, 0 = còn mới)
+    {   # Last load older than 24h? (1 = stale, 0 = fresh). Uses loaded_at: forecasts contain future ts_utc.
         "name": "freshness_24h",
         "severity": "CRITICAL",
         "threshold": 0,
         "sql": "SELECT (NOW() - MAX(loaded_at) > INTERVAL '24 hours')::INT FROM {table}",
     },
-    {   # PM2.5 có giá trị vô lý (âm hoặc trên 1000 µg/m³) không?
+    {   # Physically impossible PM2.5 (negative or above 1000 µg/m³).
         "name": "pm25_range",
         "severity": "WARNING",
         "threshold": 0,
         "source": "air_quality",
         "sql": f"SELECT COUNT(*) FROM {{table}} WHERE {WINDOW} AND (pm2_5 < 0 OR pm2_5 > 1000)",
     },
-    {   # Nguồn trả toàn NULL cho 1 tỉnh: vẫn đủ dòng, đủ 34 tỉnh, nhưng không có số liệu.
+    {   # Source returns all-NULL values for a province: row counts still match, but there is no data.
         "name": "pm25_not_null",
         "severity": "CRITICAL",
         "threshold": 0,
@@ -128,13 +128,13 @@ def assert_raw_schema(source, run_date) -> None:
     bad = missing_columns(source, run_date)
     if bad:
         name, cols = next(iter(bad.items()))
-        raise ValueError(f"Schema drift: {len(bad)} file raw thiếu cột, ví dụ {name} thiếu {cols}")
+        raise ValueError(f"Schema drift: {len(bad)} raw files missing columns, e.g. {name} missing {cols}")
 
 
 def check_raw_schema(source, run_date) -> dict:
     bad = missing_columns(source, run_date)
     for name, cols in bad.items():
-        print(f"[raw_schema] {source.name}/{name}: thiếu {cols}")
+        print(f"[raw_schema] {source.name}/{name}: missing {cols}")
     return make_result("raw_schema", "CRITICAL", len(bad), 0)
 
 

@@ -1,33 +1,33 @@
-# Sự cố 03 · Một tỉnh trả về toàn NULL
+# Incident 03 · One province returns all NULLs
 
-**Diễn tập ngày:** 28/11/2026 · `VIETSKY_CHAOS=null_province run_pipeline.py --date 2026-11-28 --source weather`
-Lần 1: run `1c1beffa` (trước khi sửa) · Lần 2: run `0771d653` (sau khi thêm quy tắc)
-**Mức độ:** cao (dashboard hiển thị Hà Nội trống, AVG toàn quốc lệch) · **MTTD:** lần 1 không phát hiện; lần 2 ~1 giây sau load
+**Drill date:** 2026-11-28 · `VIETSKY_CHAOS=null_province run_pipeline.py --date 2026-11-28 --source weather`
+Drill 1: run `1c1beffa` (before the fix) · Drill 2: run `0771d653` (after adding the rule)
+**Severity:** high (Hanoi shows empty on the dashboard and the national average is skewed) · **Time to detect:** drill 1, not detected; drill 2, ~1 second after load
 
-## Triệu chứng
-API trả 200, đủ 192 giờ cho Hà Nội (`01`), nhưng mọi cột đo đều `null`.
+## Symptoms
+The API returned 200 with all 192 hours for Hanoi (`01`), but every measure was `null`.
 
-## Phát hiện lúc nào, bằng gì
-- **Lần 1: không check nào bắt được.** Cả 5 chặng SUCCESS, 6/6 check PASS. Kết quả: 192 dòng `temperature IS NULL` của Hà Nội nằm trong cả staging lẫn mart.
-  - `all_provinces` PASS: `location_id = '01'` vẫn có mặt.
-  - `reconcile_daily` PASS: số dòng khớp ở cả 3 tầng (dòng NULL vẫn là dòng).
-  - Check NULL của Ngày 4 (`dq_checks.sql`) có, nhưng chỉ chạy tay.
-- **Lần 2, sau khi thêm `temperature_not_null` / `pm25_not_null` (CRITICAL):** `quality_check` FAILED với `DQ failed: ['temperature_not_null']`, `failed_rows = 192`, `build_mart` **không chạy**.
+## Detection
+- **Drill 1: no check caught it.** All 5 stages succeeded and 6/6 checks passed. Result: 192 rows with `temperature IS NULL` for Hanoi in both staging and the mart.
+  - `all_provinces` PASS: `location_id = '01'` is still present.
+  - `reconcile_daily` PASS: row counts match across all three layers (a NULL row is still a row).
+  - An ad-hoc NULL check (`dq_checks.sql`) exists, but only runs manually.
+- **Drill 2, after adding `temperature_not_null` / `pm25_not_null` (CRITICAL):** `quality_check` FAILED with `DQ failed: ['temperature_not_null']`, `failed_rows = 192`, and `build_mart` **did not run**.
 
-## Khoanh vùng
-Nguồn (extract) trả dữ liệu rỗng về giá trị; đường ống vận chuyển đúng. Đây là lỗi **nội dung**, không phải lỗi **số lượng**.
+## Scope
+The source (extract) delivered empty values, while the pipeline itself moved data correctly. This is a **content** failure, not a **volume** failure.
 
-## Nguyên nhân gốc (5 Whys)
-1. Vì sao Hà Nội trống trên dashboard? Mart có 192 giờ NULL.
-2. Vì sao NULL vào được mart? Không có quy tắc nào về tỷ lệ NULL của cột đo.
-3. Vì sao thiếu quy tắc? Bộ quy tắc Ngày 10 tập trung vào khoá, số lượng, độ mới; coi "đủ dòng" là "đủ dữ liệu".
-4. Vì sao nguồn trả NULL? (Giả lập; ngoài đời: trạm/mô hình của nguồn ngừng cho 1 điểm, giống 238 giờ NULL đầu tiên ngày 04/08/2022.)
-5. Vì sao lần 2 mart vẫn còn NULL từ lần 1? Cổng chất lượng giữ mart **ở bản trước**, mà bản trước đã bẩn từ lần 1. Cổng chỉ ngăn lỗi mới, không tự dọn lỗi cũ.
+## Root cause (5 Whys)
+1. Why is Hanoi empty on the dashboard? The mart has 192 NULL hours.
+2. Why did NULLs reach the mart? No rule checked the NULL rate of measure columns.
+3. Why was the rule missing? The original rules focused on keys, volume and freshness, treating "all rows present" as "all data present".
+4. Why did the source return NULLs? It is simulated here. In the real world, a station or model stops reporting for one point, like the 238 NULL hours at the start of 2022-08-04.
+5. Why did the mart still hold NULLs during drill 2? The gate keeps the mart at its **previous** version, and that version was already polluted by drill 1. A gate stops new bad data, it does not clean up old bad data.
 
-## Cách sửa
-Khi nguồn trả lại số liệu, chạy lại pipeline: upsert ghi đè 192 dòng NULL, mart dựng lại. Đã làm: run `f04107cd`, NULL của Hà Nội trong staging và mart về 0.
+## Fix
+Once the source returns real values, re-run the pipeline: the upsert overwrites the 192 NULL rows and the mart is rebuilt. Done in run `f04107cd`: Hanoi's NULL count in staging and the mart is back to 0.
 
-## Phòng tránh
-- Đã thêm quy tắc `*_not_null` cho cột đo chính của mỗi nguồn (ngưỡng 0 trong khung 8 ngày).
-- "Đủ dòng" ≠ "đủ dữ liệu": completeness phải kiểm cả cấp **dòng** lẫn cấp **giá trị**.
-- Nếu nguồn có NULL hợp lệ (ví dụ giờ đầu tiên của chuỗi), dùng ngưỡng tỷ lệ (ví dụ ≤ 1%) thay vì 0.
+## Prevention
+- Added `*_not_null` rules on each source's main measure (threshold 0 within the 8-day window).
+- "All rows present" ≠ "all data present": completeness must be checked at both the **row** and the **value** level.
+- If a source has legitimate NULLs (e.g. the first hours of a series), use a ratio threshold (e.g. ≤ 1%) instead of 0.
